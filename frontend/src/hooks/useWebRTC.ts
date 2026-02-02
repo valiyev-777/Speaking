@@ -5,25 +5,33 @@ import { useStore } from "@/lib/store";
 import { wsManager } from "@/lib/websocket";
 import { WSMessage } from "@/types";
 
-// Free TURN servers - multiple options for reliability
+// ICE Servers - STUN for discovery, TURN for relay
 const ICE_SERVERS: RTCIceServer[] = [
   // Google STUN
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
 
-  // Twilio STUN (free)
+  // Twilio STUN
   { urls: "stun:global.stun.twilio.com:3478" },
 
-  // Free TURN from metered.ca (public relay)
+  // Free TURN servers
   {
-    urls: [
-      "turn:a.relay.metered.ca:80",
-      "turn:a.relay.metered.ca:80?transport=tcp",
-      "turn:a.relay.metered.ca:443",
-      "turn:a.relay.metered.ca:443?transport=tcp",
-    ],
-    username: "e8dd65b92f9b1859a5e69c55",
-    credential: "uWdWNmkhvyqTEgQB",
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject",
   },
 ];
 
@@ -156,10 +164,17 @@ export function useWebRTC() {
     // ICE candidate handler
     pc.onicecandidate = (event) => {
       if (event.candidate && currentMatch) {
-        console.log("[WebRTC] Sending ICE candidate:", event.candidate.type);
+        const candidateType = event.candidate.type || "unknown";
+        const protocol = event.candidate.protocol || "unknown";
+        console.log(
+          `[WebRTC] ICE candidate: type=${candidateType}, protocol=${protocol}`
+        );
+
         wsManager.sendSignaling("ice_candidate", currentMatch.partner_id, {
           candidate: event.candidate.toJSON(),
         });
+      } else if (!event.candidate) {
+        console.log("[WebRTC] ICE gathering complete");
       }
     };
 
@@ -178,11 +193,29 @@ export function useWebRTC() {
       ) {
         setConnectionState("connected");
       } else if (pc.iceConnectionState === "failed") {
-        console.log("[WebRTC] ICE failed, restarting...");
+        console.log("[WebRTC] ICE failed, attempting restart...");
+        // Try ICE restart
         pc.restartIce();
         setConnectionState("connecting");
+
+        // If still failing after 5 seconds, notify user
+        setTimeout(() => {
+          if (pc.iceConnectionState === "failed") {
+            console.log("[WebRTC] ICE restart failed");
+            setConnectionState("failed");
+          }
+        }, 5000);
       } else if (pc.iceConnectionState === "disconnected") {
+        console.log("[WebRTC] ICE disconnected, waiting for reconnection...");
         setConnectionState("connecting");
+
+        // Give it 10 seconds to reconnect
+        setTimeout(() => {
+          if (pc.iceConnectionState === "disconnected") {
+            console.log("[WebRTC] Still disconnected, restarting ICE...");
+            pc.restartIce();
+          }
+        }, 10000);
       }
     };
 
