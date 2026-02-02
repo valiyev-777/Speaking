@@ -26,6 +26,31 @@ export default function VoiceChat() {
   const [isCallStarted, setIsCallStarted] = useState(false);
   const [wsConnected, setWsConnected] = useState(wsManager.isConnected);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [showAudioPrompt, setShowAudioPrompt] = useState(false);
+
+  // Check if audio needs user interaction (mobile)
+  useEffect(() => {
+    if (connectionState === "connected") {
+      // Small delay to check if audio is working
+      const timer = setTimeout(() => {
+        const audioElements = document.querySelectorAll("audio");
+        audioElements.forEach((audio) => {
+          if (audio.paused && audio.srcObject) {
+            setShowAudioPrompt(true);
+          }
+        });
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [connectionState]);
+
+  const enableAudio = () => {
+    const audioElements = document.querySelectorAll("audio");
+    audioElements.forEach((audio) => {
+      audio.play().catch(console.error);
+    });
+    setShowAudioPrompt(false);
+  };
 
   // Handle incoming messages
   useEffect(() => {
@@ -171,6 +196,23 @@ export default function VoiceChat() {
         </div>
       </header>
 
+      {/* Audio Enable Prompt (for mobile) */}
+      {showAudioPrompt && (
+        <div className="flex-shrink-0 bg-yellow-600 p-2 sm:p-3">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+            <span className="text-white text-xs sm:text-sm">
+              Ovozni eshitish uchun bosing
+            </span>
+            <button
+              onClick={enableAudio}
+              className="bg-white text-yellow-600 px-3 py-1 rounded-full text-xs sm:text-sm font-semibold"
+            >
+              🔊 Ovozni yoqish
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Voice Status Bar */}
       <div className="flex-shrink-0 bg-slate-800/50 border-b border-slate-700 p-2 sm:p-3">
         <div className="max-w-3xl mx-auto flex items-center justify-center gap-3 sm:gap-6">
@@ -285,7 +327,7 @@ export default function VoiceChat() {
               type="text"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              className="flex-1 bg-slate-700 rounded-full px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="flex-1 bg-slate-700 rounded-full px-3 sm:px-4 py-2 sm:py-3 text-base text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
               placeholder="Xabar yozing..."
             />
             <button

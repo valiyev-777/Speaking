@@ -1,13 +1,28 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
 
-const inter = Inter({ subsets: ['latin', 'cyrillic'] });
+const inter = Inter({ subsets: ["latin", "cyrillic"] });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 export const metadata: Metadata = {
-  title: 'IELTS Speaking Partner | O\'zbekiston',
-  description: 'IELTS Speaking mashq qiling - ovozli suhbat va chat orqali haqiqiy odamlar bilan',
-  keywords: ['IELTS', 'Speaking', 'Uzbekistan', 'O\'zbekiston', 'English', 'Practice'],
+  title: "IELTS Speaking Partner | O'zbekiston",
+  description:
+    "IELTS Speaking mashq qiling - ovozli suhbat va chat orqali haqiqiy odamlar bilan",
+  keywords: [
+    "IELTS",
+    "Speaking",
+    "Uzbekistan",
+    "O'zbekiston",
+    "English",
+    "Practice",
+  ],
 };
 
 export default function RootLayout({
