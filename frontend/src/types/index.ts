@@ -32,7 +32,7 @@ export interface LoginData {
 // Queue types
 export interface QueueStatus {
   in_queue: boolean;
-  mode?: 'roulette' | 'level_filter';
+  mode?: "roulette" | "level_filter";
   position?: number;
   joined_at?: string;
   estimated_wait_seconds?: number;
@@ -48,20 +48,21 @@ export interface MatchData {
 }
 
 // WebSocket message types
-export type WSMessageType = 
-  | 'join_queue'
-  | 'leave_queue'
-  | 'queue_joined'
-  | 'queue_left'
-  | 'matched'
-  | 'offer'
-  | 'answer'
-  | 'ice_candidate'
-  | 'session_ended'
-  | 'chat'
-  | 'error'
-  | 'ping'
-  | 'pong';
+export type WSMessageType =
+  | "join_queue"
+  | "leave_queue"
+  | "queue_joined"
+  | "queue_left"
+  | "matched"
+  | "offer"
+  | "answer"
+  | "ice_candidate"
+  | "session_ended"
+  | "chat"
+  | "error"
+  | "ping"
+  | "pong"
+  | "connection_status";
 
 export interface WSMessage {
   type: WSMessageType;
@@ -75,9 +76,9 @@ export interface Session {
   id: string;
   user1_id: string;
   user2_id: string;
-  mode: 'roulette' | 'level_filter';
+  mode: "roulette" | "level_filter";
   room_id: string;
-  status: 'active' | 'completed' | 'cancelled';
+  status: "active" | "completed" | "cancelled";
   started_at: string;
   ended_at?: string;
 }
