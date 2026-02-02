@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: ielts-speaking-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ielts-speaking-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DEBUG
+        value: false
+
+databases:
+  - name: ielts-speaking-db
+    plan: free
+    databaseName: ielts_speaking
