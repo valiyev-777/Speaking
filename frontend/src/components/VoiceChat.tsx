@@ -173,10 +173,16 @@ export default function VoiceChat() {
                   className={
                     connectionState === "connected"
                       ? "text-emerald-400"
+                      : connectionState === "failed"
+                      ? "text-red-400"
                       : "text-yellow-400"
                   }
                 >
-                  {connectionState === "connected" ? "✓" : "..."}
+                  {connectionState === "connected"
+                    ? "✓"
+                    : connectionState === "failed"
+                    ? "✗"
+                    : "..."}
                 </span>
               </div>
             </div>
@@ -230,6 +236,11 @@ export default function VoiceChat() {
               <span className="text-emerald-400 text-xs sm:text-sm">
                 Ulandi
               </span>
+            </div>
+          ) : connectionState === "failed" ? (
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="w-3 h-3 sm:w-4 sm:h-4 bg-red-500 rounded-full" />
+              <span className="text-red-400 text-xs sm:text-sm">Xatolik</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 sm:gap-2">
