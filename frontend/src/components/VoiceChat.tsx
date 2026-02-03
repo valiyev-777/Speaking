@@ -79,10 +79,14 @@ export default function VoiceChat() {
 
   // Start voice call when matched
   useEffect(() => {
+    let timeout: NodeJS.Timeout;
     if (currentMatch && !isCallStarted) {
       setIsCallStarted(true);
-      setTimeout(() => startCall(), 1000);
+      timeout = setTimeout(() => startCall(), 1000);
     }
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
   }, [currentMatch, isCallStarted, startCall]);
 
   // Check if user is at bottom of chat
@@ -174,15 +178,15 @@ export default function VoiceChat() {
                     connectionState === "connected"
                       ? "text-emerald-400"
                       : connectionState === "failed"
-                      ? "text-red-400"
-                      : "text-yellow-400"
+                        ? "text-red-400"
+                        : "text-yellow-400"
                   }
                 >
                   {connectionState === "connected"
                     ? "✓"
                     : connectionState === "failed"
-                    ? "✗"
-                    : "..."}
+                      ? "✗"
+                      : "..."}
                 </span>
               </div>
             </div>
@@ -253,11 +257,10 @@ export default function VoiceChat() {
 
           <button
             onClick={toggleAudio}
-            className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all ${
-              isAudioEnabled
+            className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all ${isAudioEnabled
                 ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                 : "bg-red-600 hover:bg-red-700 text-white"
-            }`}
+              }`}
           >
             {isAudioEnabled ? "🎤 Yoniq" : "🔇 O'chiq"}
           </button>
@@ -281,24 +284,21 @@ export default function VoiceChat() {
           {chatMessages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${
-                msg.from === "me" ? "justify-end" : "justify-start"
-              }`}
+              className={`flex ${msg.from === "me" ? "justify-end" : "justify-start"
+                }`}
             >
               <div
-                className={`max-w-[80%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${
-                  msg.from === "me"
+                className={`max-w-[80%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${msg.from === "me"
                     ? "bg-primary-600 text-white rounded-br-sm"
                     : "bg-slate-700 text-white rounded-bl-sm"
-                }`}
+                  }`}
               >
                 <p className="break-words text-sm sm:text-base">
                   {msg.message}
                 </p>
                 <p
-                  className={`text-[10px] sm:text-xs mt-1 ${
-                    msg.from === "me" ? "text-primary-200" : "text-slate-400"
-                  }`}
+                  className={`text-[10px] sm:text-xs mt-1 ${msg.from === "me" ? "text-primary-200" : "text-slate-400"
+                    }`}
                 >
                   {msg.time.toLocaleTimeString([], {
                     hour: "2-digit",

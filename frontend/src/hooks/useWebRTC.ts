@@ -74,19 +74,35 @@ export function useWebRTC() {
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
-        track.stop();
+        try {
+          track.enabled = false;
+          track.stop();
+        } catch (e) {
+          console.error("[WebRTC] Error stopping track:", e);
+        }
         console.log("[WebRTC] Stopped track:", track.kind);
       });
       localStreamRef.current = null;
     }
 
     if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
+      try {
+        peerConnectionRef.current.getSenders().forEach((sender) => {
+          if (sender.track) {
+            sender.track.enabled = false;
+            sender.track.stop();
+          }
+        });
+        peerConnectionRef.current.close();
+      } catch (e) {
+        console.error("[WebRTC] Error closing peer connection:", e);
+      }
       peerConnectionRef.current = null;
     }
 
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
+      remoteAudioRef.current.pause();
     }
 
     iceCandidatesQueue.current = [];
@@ -99,6 +115,10 @@ export function useWebRTC() {
     if (localStreamRef.current) {
       return localStreamRef.current;
     }
+
+    // Prevent concurrent calls to getUserMedia
+    const existingStream = localStreamRef.current;
+    if (existingStream) return existingStream;
 
     console.log("[WebRTC] Requesting microphone...");
 
@@ -298,6 +318,7 @@ export function useWebRTC() {
     } catch (error) {
       console.error("[WebRTC] Start call error:", error);
       setConnectionState("failed");
+      cleanup();
     }
   }, [currentMatch, getLocalStream, createPeerConnection]);
 
@@ -342,6 +363,7 @@ export function useWebRTC() {
       } catch (error) {
         console.error("[WebRTC] Handle offer error:", error);
         setConnectionState("failed");
+        cleanup();
       }
     },
     [currentMatch, getLocalStream, createPeerConnection, processIceCandidates]
@@ -454,9 +476,23 @@ export function useWebRTC() {
     setIsAudioEnabled(true);
   }, [cleanup]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount and page leave
   useEffect(() => {
-    return () => cleanup();
+    const handleUnload = () => {
+      console.log("[WebRTC] Page leaving, cleaning up...");
+      cleanup();
+    };
+
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("pagehide", handleUnload);
+    window.addEventListener("popstate", handleUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("pagehide", handleUnload);
+      window.removeEventListener("popstate", handleUnload);
+      cleanup();
+    };
   }, [cleanup]);
 
   return {
