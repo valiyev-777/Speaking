@@ -1,39 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { wsManager } from "@/lib/websocket";
 import { formatLevel, formatTime } from "@/lib/utils";
 import { WSMessage } from "@/types";
 
-interface ChatMsg {
+interface Msg {
   id: string;
   from: "me" | "partner";
   text: string;
-  time: Date;
 }
 
 export default function VoiceChat() {
   const user = useStore((s) => s.user);
-  const currentMatch = useStore((s) => s.currentMatch);
+  const match = useStore((s) => s.currentMatch);
   const clearMatch = useStore((s) => s.clearMatch);
 
   const { status, micOn, startCall, endCall, toggleMic } = useWebRTC();
 
   const chatRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [time, setTime] = useState(0);
-  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
-  const [input, setInput] = useState("");
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [text, setText] = useState("");
   const [started, setStarted] = useState(false);
 
-  // Start call once
+  // Start call
   useEffect(() => {
-    if (currentMatch && !started) {
+    if (match && !started) {
       setStarted(true);
       startCall();
     }
-  }, [currentMatch, started, startCall]);
+  }, [match, started, startCall]);
 
   // Timer
   useEffect(() => {
@@ -41,79 +41,101 @@ export default function VoiceChat() {
     return () => clearInterval(i);
   }, []);
 
-  // Messages
+  // Listen messages
   useEffect(() => {
-    const handler = (msg: WSMessage) => {
-      if (msg.type === "chat" && msg.message) {
+    const fn = (m: WSMessage) => {
+      if (m.type === "chat" && m.message) {
         setMsgs((p) => [
           ...p,
-          {
-            id: Date.now().toString(),
-            from: "partner",
-            text: msg.message!,
-            time: new Date(),
-          },
+          { id: `${Date.now()}`, from: "partner", text: m.message! },
         ]);
-      } else if (msg.type === "session_ended") {
+      } else if (m.type === "session_ended") {
         endCall();
         clearMatch();
       }
     };
-    wsManager.addMessageHandler(handler);
-    return () => wsManager.removeMessageHandler(handler);
+    wsManager.addMessageHandler(fn);
+    return () => wsManager.removeMessageHandler(fn);
   }, [endCall, clearMatch]);
 
-  // Scroll
+  // Scroll to bottom
   useEffect(() => {
-    if (chatRef.current) {
-      chatRef.current.scrollTop = chatRef.current.scrollHeight;
-    }
+    chatRef.current?.scrollTo(0, chatRef.current.scrollHeight);
   }, [msgs]);
 
-  const send = (e: React.FormEvent) => {
-    e.preventDefault();
-    const txt = input.trim();
-    if (!txt || !currentMatch) return;
-    setMsgs((p) => [
-      ...p,
-      { id: Date.now().toString(), from: "me", text: txt, time: new Date() },
-    ]);
-    wsManager.sendChat(currentMatch.partner_id, txt);
-    setInput("");
+  const send = () => {
+    const t = text.trim();
+    if (!t || !match) return;
+    setMsgs((p) => [...p, { id: `${Date.now()}`, from: "me", text: t }]);
+    wsManager.sendChat(match.partner_id, t);
+    setText("");
+    // Keep focus on input
+    setTimeout(() => inputRef.current?.focus(), 10);
   };
 
-  const handleEnd = () => {
-    if (currentMatch?.session_id) {
-      wsManager.endSession(currentMatch.session_id);
-    }
+  const end = () => {
+    if (match?.session_id) wsManager.endSession(match.session_id);
     endCall();
     clearMatch();
   };
 
-  if (!currentMatch || !user) return null;
+  if (!match || !user) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900 flex flex-col">
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: "flex",
+        flexDirection: "column",
+        background: "#0f172a",
+      }}
+    >
       {/* Header */}
-      <div className="bg-slate-800 px-3 py-2 flex items-center justify-between border-b border-slate-700">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold">
-            {currentMatch.partner_username[0].toUpperCase()}
+      <div
+        style={{
+          background: "#1e293b",
+          padding: "8px 12px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: "1px solid #334155",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              background: "#7c3aed",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#fff",
+              fontWeight: "bold",
+            }}
+          >
+            {match.partner_username[0].toUpperCase()}
           </div>
           <div>
-            <div className="text-white text-sm font-medium">
-              {currentMatch.partner_username}
+            <div style={{ color: "#fff", fontSize: 14, fontWeight: 500 }}>
+              {match.partner_username}
             </div>
-            <div className="text-xs text-slate-400">
-              {formatLevel(currentMatch.partner_level)} •
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>
+              {formatLevel(match.partner_level)} •
               <span
-                className={
-                  status === "connected"
-                    ? "text-green-400"
-                    : status === "failed"
-                    ? "text-red-400"
-                    : "text-yellow-400"
-                }
+                style={{
+                  color:
+                    status === "connected"
+                      ? "#4ade80"
+                      : status === "failed"
+                      ? "#f87171"
+                      : "#fbbf24",
+                }}
               >
                 {status === "connected"
                   ? " Ulandi"
@@ -124,13 +146,23 @@ export default function VoiceChat() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-white text-sm font-mono">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{ color: "#fff", fontSize: 14, fontFamily: "monospace" }}
+          >
             {formatTime(time)}
           </span>
           <button
-            onClick={handleEnd}
-            className="bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg"
+            onClick={end}
+            style={{
+              background: "#dc2626",
+              color: "#fff",
+              border: "none",
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 12,
+              cursor: "pointer",
+            }}
           >
             Tugatish
           </button>
@@ -138,94 +170,152 @@ export default function VoiceChat() {
       </div>
 
       {/* Voice bar */}
-      <div className="bg-slate-800/50 px-3 py-2 flex items-center justify-center gap-4 border-b border-slate-700">
-        {status === "connected" ? (
-          <span className="text-green-400 text-xs">🔊 Ovoz ulandi</span>
-        ) : status === "failed" ? (
-          <span className="text-red-400 text-xs">❌ Ulanmadi</span>
-        ) : (
-          <span className="text-yellow-400 text-xs">⏳ Ulanmoqda...</span>
-        )}
+      <div
+        style={{
+          background: "#1e293b80",
+          padding: "8px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+          borderBottom: "1px solid #334155",
+        }}
+      >
+        <span
+          style={{
+            color:
+              status === "connected"
+                ? "#4ade80"
+                : status === "failed"
+                ? "#f87171"
+                : "#fbbf24",
+            fontSize: 12,
+          }}
+        >
+          {status === "connected"
+            ? "🔊 Ovoz ulandi"
+            : status === "failed"
+            ? "❌ Ulanmadi"
+            : "⏳ Ulanmoqda..."}
+        </span>
         <button
           onClick={toggleMic}
-          className={`px-3 py-1 rounded-full text-xs font-medium ${
-            micOn ? "bg-green-600 text-white" : "bg-red-600 text-white"
-          }`}
+          style={{
+            background: micOn ? "#16a34a" : "#dc2626",
+            color: "#fff",
+            border: "none",
+            padding: "6px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            cursor: "pointer",
+          }}
         >
           {micOn ? "🎤 Yoniq" : "🔇 O'chiq"}
         </button>
       </div>
 
-      {/* Chat messages */}
-      <div ref={chatRef} className="flex-1 overflow-y-auto p-3 space-y-2">
-        <div className="text-center text-slate-500 text-xs py-2">
-          {currentMatch.partner_username} bilan suhbat boshlandi
+      {/* Chat */}
+      <div ref={chatRef} style={{ flex: 1, overflowY: "auto", padding: 12 }}>
+        <div
+          style={{
+            textAlign: "center",
+            color: "#64748b",
+            fontSize: 12,
+            marginBottom: 12,
+          }}
+        >
+          Suhbat boshlandi
         </div>
-
         {msgs.map((m) => (
           <div
             key={m.id}
-            className={`flex ${
-              m.from === "me" ? "justify-end" : "justify-start"
-            }`}
+            style={{
+              display: "flex",
+              justifyContent: m.from === "me" ? "flex-end" : "flex-start",
+              marginBottom: 8,
+            }}
           >
             <div
-              className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm ${
-                m.from === "me"
-                  ? "bg-primary-600 text-white"
-                  : "bg-slate-700 text-white"
-              }`}
+              style={{
+                maxWidth: "75%",
+                padding: "8px 12px",
+                borderRadius: 16,
+                background: m.from === "me" ? "#7c3aed" : "#334155",
+                color: "#fff",
+                fontSize: 14,
+                wordBreak: "break-word",
+              }}
             >
               {m.text}
-              <div
-                className={`text-[10px] mt-1 ${
-                  m.from === "me" ? "text-primary-200" : "text-slate-400"
-                }`}
-              >
-                {m.time.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </div>
             </div>
           </div>
         ))}
       </div>
 
       {/* Input */}
-      <form
-        onSubmit={send}
-        className="bg-slate-800 px-3 py-2 border-t border-slate-700"
+      <div
+        style={{
+          background: "#1e293b",
+          padding: 8,
+          borderTop: "1px solid #334155",
+        }}
       >
-        <div className="flex gap-2">
+        <div style={{ display: "flex", gap: 8 }}>
           <input
+            ref={inputRef}
             type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                send();
+              }
+            }}
             placeholder="Xabar yozing..."
-            className="flex-1 bg-slate-700 text-white text-base px-4 py-2 rounded-full outline-none"
+            style={{
+              flex: 1,
+              background: "#334155",
+              color: "#fff",
+              border: "none",
+              padding: "10px 16px",
+              borderRadius: 20,
+              fontSize: 16,
+              outline: "none",
+            }}
           />
           <button
-            type="submit"
-            disabled={!input.trim()}
-            className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center disabled:opacity-50"
+            onClick={send}
+            disabled={!text.trim()}
+            style={{
+              width: 44,
+              height: 44,
+              background: text.trim() ? "#7c3aed" : "#475569",
+              border: "none",
+              borderRadius: "50%",
+              cursor: text.trim() ? "pointer" : "default",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
             <svg
-              className="w-5 h-5 text-white"
+              width="20"
+              height="20"
               fill="none"
               viewBox="0 0 24 24"
-              stroke="currentColor"
+              stroke="#fff"
+              strokeWidth={2}
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
                 d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
               />
             </svg>
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

@@ -202,15 +202,28 @@ export function useWebRTC() {
     return () => wsManager.removeMessageHandler(handler);
   }, [handleOffer, handleAnswer, handleIce]);
 
-  // Toggle mic
+  // Toggle mic - disable both local track and sender
   const toggleMic = useCallback(() => {
     const stream = streamRef.current;
+    const pc = pcRef.current;
     if (!stream) return;
+
     const track = stream.getAudioTracks()[0];
-    if (track) {
-      track.enabled = !track.enabled;
-      setMicOn(track.enabled);
+    if (!track) return;
+
+    const newState = !track.enabled;
+    track.enabled = newState;
+
+    // Also disable sender track
+    if (pc) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
+      if (sender?.track) {
+        sender.track.enabled = newState;
+      }
     }
+
+    setMicOn(newState);
+    console.log("[WebRTC] Mic:", newState ? "ON" : "OFF");
   }, []);
 
   // End call
