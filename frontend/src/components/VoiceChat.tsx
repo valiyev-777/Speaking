@@ -94,7 +94,8 @@ export default function VoiceChat() {
   // Check if user is at bottom of chat
   const handleScroll = useCallback(() => {
     if (chatContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+      const { scrollTop, scrollHeight, clientHeight } =
+        chatContainerRef.current;
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
       setShouldAutoScroll(isAtBottom);
     }
@@ -103,7 +104,8 @@ export default function VoiceChat() {
   // Auto-scroll chat only if user is at bottom
   useEffect(() => {
     if (chatContainerRef.current && shouldAutoScroll) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
     }
   }, [chatMessages, shouldAutoScroll]);
 
@@ -146,7 +148,8 @@ export default function VoiceChat() {
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
       setShouldAutoScroll(true);
     }
   };
@@ -177,15 +180,15 @@ export default function VoiceChat() {
                     connectionState === "connected"
                       ? "text-emerald-400"
                       : connectionState === "failed"
-                        ? "text-red-400"
-                        : "text-yellow-400"
+                      ? "text-red-400"
+                      : "text-yellow-400"
                   }
                 >
                   {connectionState === "connected"
                     ? "✓"
                     : connectionState === "failed"
-                      ? "✗"
-                      : "..."}
+                    ? "✗"
+                    : "..."}
                 </span>
               </div>
             </div>
@@ -243,7 +246,9 @@ export default function VoiceChat() {
           ) : connectionState === "failed" ? (
             <div className="flex items-center gap-1.5 sm:gap-2">
               <div className="w-3 h-3 sm:w-4 sm:h-4 bg-red-500 rounded-full shadow-lg shadow-red-500/20" />
-              <span className="text-red-400 text-xs sm:text-sm font-medium">Xatolik</span>
+              <span className="text-red-400 text-xs sm:text-sm font-medium">
+                Xatolik
+              </span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -256,10 +261,11 @@ export default function VoiceChat() {
 
           <button
             onClick={toggleAudio}
-            className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold shadow-lg transition-all active:scale-95 ${isAudioEnabled
-              ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20"
-              : "bg-red-600 hover:bg-red-700 text-white shadow-red-500/20"
-              }`}
+            className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold shadow-lg transition-all active:scale-95 ${
+              isAudioEnabled
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20"
+                : "bg-red-600 hover:bg-red-700 text-white shadow-red-500/20"
+            }`}
           >
             {isAudioEnabled ? "🎤 Yoniq" : "🔇 O'chiq"}
           </button>
@@ -267,7 +273,7 @@ export default function VoiceChat() {
       </div>
 
       {/* Chat Container */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
@@ -292,20 +298,24 @@ export default function VoiceChat() {
             {chatMessages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex ${msg.from === "me" ? "justify-end" : "justify-start"}`}
+                className={`flex ${
+                  msg.from === "me" ? "justify-end" : "justify-start"
+                }`}
               >
                 <div
-                  className={`max-w-[85%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${msg.from === "me"
+                  className={`max-w-[85%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${
+                    msg.from === "me"
                       ? "bg-primary-600 text-white rounded-br-sm"
                       : "bg-slate-700 text-white rounded-bl-sm"
-                    }`}
+                  }`}
                 >
                   <p className="break-words text-sm sm:text-base">
                     {msg.message}
                   </p>
                   <p
-                    className={`text-[10px] sm:text-xs mt-1 ${msg.from === "me" ? "text-primary-200" : "text-slate-400"
-                      }`}
+                    className={`text-[10px] sm:text-xs mt-1 ${
+                      msg.from === "me" ? "text-primary-200" : "text-slate-400"
+                    }`}
                   >
                     {msg.time.toLocaleTimeString([], {
                       hour: "2-digit",
@@ -329,7 +339,7 @@ export default function VoiceChat() {
       </div>
 
       {/* Chat Input */}
-      <div className="flex-shrink-0 bg-slate-800 border-t border-slate-700 p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 flex-shrink-0 bg-slate-800 border-t border-slate-700 p-2 sm:p-4 pb-[env(safe-area-inset-bottom)]">
         <form onSubmit={handleSendChat} className="max-w-3xl mx-auto">
           <div className="flex items-center gap-2 sm:gap-3">
             <input

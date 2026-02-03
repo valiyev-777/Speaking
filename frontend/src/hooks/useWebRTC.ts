@@ -46,6 +46,7 @@ export function useWebRTC() {
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
   const isNegotiating = useRef(false);
   const streamPromiseRef = useRef<Promise<MediaStream> | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [connectionState, setConnectionState] =
     useState<ConnectionStatus>("idle");
@@ -72,6 +73,11 @@ export function useWebRTC() {
   // Cleanup function
   const cleanup = useCallback(() => {
     console.log("[WebRTC] Cleanup");
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
@@ -125,24 +131,27 @@ export function useWebRTC() {
 
     console.log("[WebRTC] Requesting microphone...");
 
-    const promise = navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    }).then(stream => {
-      localStreamRef.current = stream;
-      console.log("[WebRTC] Microphone granted");
-      streamPromiseRef.current = null;
-      return stream;
-    }).catch(error => {
-      console.error("[WebRTC] Microphone error:", error);
-      streamPromiseRef.current = null;
-      alert("Mikrofon ruxsati berilmadi!");
-      throw error;
-    });
+    const promise = navigator.mediaDevices
+      .getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      })
+      .then((stream) => {
+        localStreamRef.current = stream;
+        console.log("[WebRTC] Microphone granted");
+        streamPromiseRef.current = null;
+        return stream;
+      })
+      .catch((error) => {
+        console.error("[WebRTC] Microphone error:", error);
+        streamPromiseRef.current = null;
+        alert("Mikrofon ruxsati berilmadi!");
+        throw error;
+      });
 
     streamPromiseRef.current = promise;
     return promise;
@@ -171,6 +180,42 @@ export function useWebRTC() {
       }
     }
   }, []);
+
+  const scheduleRelayFallback = useCallback(async () => {
+    if (!currentMatch?.is_initiator) return;
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+    }
+
+    reconnectTimerRef.current = setTimeout(async () => {
+      const pc = peerConnectionRef.current;
+      if (!pc || pc.connectionState === "connected") return;
+
+      try {
+        console.log("[WebRTC] Relay fallback: forcing TURN (relay)");
+        pc.setConfiguration({
+          iceServers: ICE_SERVERS,
+          iceTransportPolicy: "relay",
+        });
+        pc.restartIce();
+
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false,
+          iceRestart: true,
+        });
+        await pc.setLocalDescription(offer);
+        wsManager.sendSignaling("offer", currentMatch.partner_id, {
+          type: offer.type,
+          sdp: offer.sdp,
+        });
+        console.log("[WebRTC] Relay fallback offer sent");
+      } catch (error) {
+        console.error("[WebRTC] Relay fallback failed:", error);
+      }
+    }, 12000);
+  }, [currentMatch?.is_initiator, currentMatch?.partner_id]);
 
   // Create peer connection
   const createPeerConnection = useCallback((): RTCPeerConnection => {
@@ -218,11 +263,16 @@ export function useWebRTC() {
         pc.iceConnectionState === "completed"
       ) {
         setConnectionState("connected");
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
       } else if (pc.iceConnectionState === "failed") {
         console.log("[WebRTC] ICE failed, attempting restart...");
         // Try ICE restart
         pc.restartIce();
         setConnectionState("connecting");
+        scheduleRelayFallback();
 
         // If still failing after 5 seconds, notify user
         setTimeout(() => {
@@ -234,6 +284,7 @@ export function useWebRTC() {
       } else if (pc.iceConnectionState === "disconnected") {
         console.log("[WebRTC] ICE disconnected, waiting for reconnection...");
         setConnectionState("connecting");
+        scheduleRelayFallback();
 
         // Give it 10 seconds to reconnect
         setTimeout(() => {
@@ -251,6 +302,10 @@ export function useWebRTC() {
 
       if (pc.connectionState === "connected") {
         setConnectionState("connected");
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
       } else if (pc.connectionState === "failed") {
         setConnectionState("failed");
       }
@@ -316,17 +371,25 @@ export function useWebRTC() {
           sdp: offer.sdp,
         });
         console.log("[WebRTC] Offer sent");
+        scheduleRelayFallback();
 
         isNegotiating.current = false;
       } else {
         console.log("[WebRTC] Waiting for offer from initiator...");
+        scheduleRelayFallback();
       }
     } catch (error) {
       console.error("[WebRTC] Start call error:", error);
       setConnectionState("failed");
       cleanup();
     }
-  }, [currentMatch, getLocalStream, createPeerConnection]);
+  }, [
+    currentMatch,
+    getLocalStream,
+    createPeerConnection,
+    scheduleRelayFallback,
+    cleanup,
+  ]);
 
   // Handle incoming offer
   const handleOffer = useCallback(
