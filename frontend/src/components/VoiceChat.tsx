@@ -29,6 +29,8 @@ export default function VoiceChat() {
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputWrapRef = useRef<HTMLDivElement>(null);
+  const startCallRef = useRef(startCall);
+  startCallRef.current = startCall;
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [sessionTime, setSessionTime] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -103,17 +105,19 @@ export default function VoiceChat() {
     };
   }, []);
 
-  // Start voice call when matched
+  // Start voice call when matched (ref so timeout is not cleared when startCall identity changes)
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    if (currentMatch && !isCallStarted) {
-      setIsCallStarted(true);
-      timeout = setTimeout(() => startCall(), 1000);
-    }
-    return () => {
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [currentMatch, isCallStarted, startCall]);
+    if (!currentMatch || isCallStarted) return;
+    setIsCallStarted(true);
+    const t = setTimeout(() => {
+      startCallRef
+        .current?.()
+        .catch((e: unknown) =>
+          console.error("[VoiceChat] startCall failed:", e)
+        );
+    }, 300);
+    return () => clearTimeout(t);
+  }, [currentMatch?.partner_id, isCallStarted]);
 
   // Check if user is at bottom of chat
   const handleScroll = useCallback(() => {
@@ -181,7 +185,10 @@ export default function VoiceChat() {
   if (!currentMatch || !user) return null;
 
   return (
-    <div className="h-[100dvh] sm:h-screen flex flex-col overflow-hidden bg-slate-900">
+    <div
+      className="fixed inset-0 flex flex-col overflow-hidden bg-slate-900 z-10"
+      style={{ height: "100dvh", maxHeight: "100dvh" }}
+    >
       {/* Header */}
       <header className="flex-shrink-0 bg-slate-800 border-b border-slate-700 px-2 sm:px-4 py-2 sm:py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
@@ -296,13 +303,13 @@ export default function VoiceChat() {
         </div>
       </div>
 
-      {/* Chat Container */}
-      <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
+      {/* Chat Container - only this area scrolls */}
+      <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 transition-[padding] duration-150"
-          style={{ paddingBottom: keyboardOffset ? "5rem" : undefined }}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 transition-[padding] duration-150 overscroll-contain"
+          style={{ paddingBottom: keyboardOffset ? "5rem" : "1rem" }}
         >
           <div className="max-w-3xl mx-auto space-y-3">
             {/* Session start message */}
