@@ -113,40 +113,39 @@ export function useWebRTC() {
 
   // Get microphone access
   const getLocalStream = useCallback(async (): Promise<MediaStream> => {
+    // If we already have a stream, return it
     if (localStreamRef.current) {
       return localStreamRef.current;
     }
 
+    // If there's a pending request, wait for it
     if (streamPromiseRef.current) {
       return streamPromiseRef.current;
     }
 
     console.log("[WebRTC] Requesting microphone...");
 
-    streamPromiseRef.current = (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
+    const promise = navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    }).then(stream => {
+      localStreamRef.current = stream;
+      console.log("[WebRTC] Microphone granted");
+      streamPromiseRef.current = null;
+      return stream;
+    }).catch(error => {
+      console.error("[WebRTC] Microphone error:", error);
+      streamPromiseRef.current = null;
+      alert("Mikrofon ruxsati berilmadi!");
+      throw error;
+    });
 
-        localStreamRef.current = stream;
-        console.log("[WebRTC] Microphone granted");
-        return stream;
-      } catch (error) {
-        console.error("[WebRTC] Microphone error:", error);
-        alert("Mikrofon ruxsati berilmadi!");
-        throw error;
-      } finally {
-        streamPromiseRef.current = null;
-      }
-    })();
-
-    return streamPromiseRef.current;
+    streamPromiseRef.current = promise;
+    return promise;
   }, []);
 
   // Process queued ICE candidates

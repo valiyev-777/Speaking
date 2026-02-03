@@ -94,9 +94,8 @@ export default function VoiceChat() {
   // Check if user is at bottom of chat
   const handleScroll = useCallback(() => {
     if (chatContainerRef.current) {
-      const { scrollTop } = chatContainerRef.current;
-      // In flex-col-reverse, scrollTop is 0 at the bottom and negative as you scroll up
-      const isAtBottom = Math.abs(scrollTop) < 50;
+      const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
       setShouldAutoScroll(isAtBottom);
     }
   }, []);
@@ -104,7 +103,7 @@ export default function VoiceChat() {
   // Auto-scroll chat only if user is at bottom
   useEffect(() => {
     if (chatContainerRef.current && shouldAutoScroll) {
-      chatContainerRef.current.scrollTop = 0;
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatMessages, shouldAutoScroll]);
 
@@ -147,7 +146,7 @@ export default function VoiceChat() {
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
       setShouldAutoScroll(true);
     }
   };
@@ -268,41 +267,40 @@ export default function VoiceChat() {
       </div>
 
       {/* Chat Container */}
-      <div className="flex-1 flex flex-col min-h-0 relative max-w-3xl mx-auto w-full">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-2 sm:px-4 flex flex-col-reverse"
+          className="flex-1 overflow-y-auto px-3 sm:px-4 py-4"
         >
-          {/* Messages are reversed in logic but correctly displayed by flex-col-reverse */}
-          <div className="py-4 flex flex-col space-y-2 sm:space-y-3">
+          <div className="max-w-3xl mx-auto space-y-3">
+            {/* Session start message */}
             <div className="text-center py-2">
-              <div className="inline-block bg-slate-800/50 border border-slate-700 rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm text-slate-400">
+              <div className="inline-block bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-400">
                 {currentMatch.partner_username} bilan boshlandi 🎉
               </div>
             </div>
 
             {chatMessages.length === 0 && (
-              <div className="text-center text-slate-500 py-6 sm:py-8">
-                <p className="text-base sm:text-lg">💬</p>
+              <div className="text-center text-slate-500 py-8">
+                <p className="text-lg">💬</p>
                 <p className="text-sm">Hali xabar yo'q</p>
-                <p className="text-xs sm:text-sm">Pastda yozing!</p>
+                <p className="text-xs">Pastda yozing!</p>
               </div>
             )}
 
             {chatMessages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex ${msg.from === "me" ? "justify-end" : "justify-start"
-                  }`}
+                className={`flex ${msg.from === "me" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${msg.from === "me"
-                    ? "bg-primary-600 text-white rounded-br-sm shadow-md"
-                    : "bg-slate-700 text-white rounded-bl-sm shadow-sm"
+                  className={`max-w-[85%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${msg.from === "me"
+                      ? "bg-primary-600 text-white rounded-br-sm"
+                      : "bg-slate-700 text-white rounded-bl-sm"
                     }`}
                 >
-                  <p className="break-words text-sm sm:text-base font-medium">
+                  <p className="break-words text-sm sm:text-base">
                     {msg.message}
                   </p>
                   <p
@@ -320,15 +318,13 @@ export default function VoiceChat() {
           </div>
         </div>
 
-        {!shouldAutoScroll && chatMessages.length > 2 && (
-          <div className="absolute bottom-4 right-4 animate-bounce">
-            <button
-              onClick={scrollToBottom}
-              className="w-10 h-10 bg-primary-600 hover:bg-primary-500 rounded-full flex items-center justify-center shadow-2xl border border-primary-400 transition-all active:scale-95"
-            >
-              ⬇️
-            </button>
-          </div>
+        {!shouldAutoScroll && chatMessages.length > 3 && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-20 right-4 w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center shadow-lg z-10"
+          >
+            ⬇️
+          </button>
         )}
       </div>
 
