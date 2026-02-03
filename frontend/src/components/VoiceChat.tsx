@@ -21,7 +21,7 @@ export default function VoiceChat() {
   const { status, micOn, startCall, endCall, toggleMic } = useWebRTC();
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const [time, setTime] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -129,6 +129,11 @@ export default function VoiceChat() {
     wsManager.sendChat(match.partner_id, txt);
     setInput("");
 
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = "44px";
+    }
+
     // #region agent log
     fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
       method: "POST",
@@ -144,27 +149,29 @@ export default function VoiceChat() {
     }).catch(() => {});
     // #endregion
 
-    // Keep keyboard open
-    setTimeout(() => {
-      inputRef.current?.focus();
-      // #region agent log
-      fetch(
-        "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "VoiceChat.tsx:sendMessage",
-            message: "focus attempted",
-            data: { inputRefExists: !!inputRef.current },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            hypothesisId: "B",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
-    }, 50);
+    // Keep keyboard open - use requestAnimationFrame for better timing
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        // #region agent log
+        fetch(
+          "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              location: "VoiceChat.tsx:sendMessage",
+              message: "focus attempted after RAF",
+              data: { inputRefExists: !!inputRef.current },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              hypothesisId: "B",
+            }),
+          }
+        ).catch(() => {});
+        // #endregion
+      });
+    });
   };
 
   // End session
@@ -179,7 +186,10 @@ export default function VoiceChat() {
   if (!match || !user) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900 flex flex-col">
+    <div
+      className="fixed inset-0 bg-slate-900 flex flex-col"
+      style={{ touchAction: "manipulation" }}
+    >
       {/* Header */}
       <header className="shrink-0 bg-slate-800 px-3 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -264,7 +274,7 @@ export default function VoiceChat() {
             }`}
           >
             <div
-              className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm break-words ${
+              className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap ${
                 msg.from === "me"
                   ? "bg-violet-600 text-white"
                   : "bg-slate-700 text-white"
@@ -276,27 +286,42 @@ export default function VoiceChat() {
         ))}
       </div>
 
-      {/* Input */}
-      <div className="shrink-0 bg-slate-800 px-3 py-2">
-        <div className="flex gap-2">
-          <input
+      {/* Input - Safari safe */}
+      <div
+        className="shrink-0 bg-slate-800 px-3 py-2"
+        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+      >
+        <div className="flex gap-2 items-end">
+          <textarea
             ref={inputRef}
-            type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                sendMessage();
-              }
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Auto-resize
+              e.target.style.height = "auto";
+              e.target.style.height =
+                Math.min(e.target.scrollHeight, 120) + "px";
             }}
             placeholder="Xabar yozing..."
-            className="flex-1 bg-slate-700 text-white text-base px-4 py-2.5 rounded-full outline-none placeholder-slate-400"
+            rows={1}
+            className="flex-1 bg-slate-700 text-white px-4 py-2.5 rounded-2xl outline-none placeholder-slate-400 resize-none"
+            style={{
+              fontSize: "16px",
+              WebkitAppearance: "none",
+              minHeight: "44px",
+              maxHeight: "120px",
+              lineHeight: "1.4",
+            }}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="sentences"
           />
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={sendMessage}
             disabled={!input.trim()}
-            className="w-11 h-11 rounded-full flex items-center justify-center bg-violet-600 disabled:bg-slate-600"
+            className="w-11 h-11 rounded-full flex items-center justify-center bg-violet-600 disabled:bg-slate-600 shrink-0 select-none"
+            style={{ WebkitTapHighlightColor: "transparent" }}
           >
             <svg
               className="w-5 h-5 text-white"

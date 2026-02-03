@@ -3,8 +3,30 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent iOS zoom on inputs */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Safari safe area support */
+  @supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
   }
 }
 
@@ -12,31 +34,31 @@
   .btn {
     @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
   .btn-primary {
     @apply bg-primary-600 hover:bg-primary-700 text-white shadow-lg shadow-primary-600/25;
   }
-  
+
   .btn-secondary {
     @apply bg-slate-700 hover:bg-slate-600 text-white;
   }
-  
+
   .btn-danger {
     @apply bg-red-600 hover:bg-red-700 text-white;
   }
-  
+
   .btn-success {
     @apply bg-emerald-600 hover:bg-emerald-700 text-white;
   }
-  
+
   .input {
     @apply w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all;
   }
-  
+
   .card {
     @apply bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl p-6;
   }
-  
+
   .label {
     @apply block text-sm font-medium text-slate-300 mb-1;
   }
