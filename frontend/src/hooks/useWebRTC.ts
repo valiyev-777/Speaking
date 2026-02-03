@@ -114,13 +114,65 @@ export function useWebRTC() {
 
   // Start call
   const startCall = useCallback(async () => {
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "useWebRTC.ts:startCall",
+        message: "startCall entered",
+        data: { hasMatch: !!currentMatch },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        hypothesisId: "D",
+      }),
+    }).catch(() => {});
+    // #endregion
+
     if (!currentMatch) return;
 
     console.log("[WebRTC] Starting, initiator:", currentMatch.is_initiator);
     setStatus("connecting");
 
     try {
+      // #region agent log
+      fetch(
+        "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: "useWebRTC.ts:startCall",
+            message: "requesting mic",
+            data: { isInitiator: currentMatch.is_initiator },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            hypothesisId: "D",
+          }),
+        }
+      ).catch(() => {});
+      // #endregion
+
       const stream = await getMic();
+
+      // #region agent log
+      fetch(
+        "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: "useWebRTC.ts:startCall",
+            message: "mic obtained",
+            data: { trackCount: stream.getTracks().length },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            hypothesisId: "D",
+          }),
+        }
+      ).catch(() => {});
+      // #endregion
+
       const pc = createPC();
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));

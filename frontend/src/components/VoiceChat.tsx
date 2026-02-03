@@ -7,7 +7,7 @@ import { wsManager } from "@/lib/websocket";
 import { formatLevel, formatTime } from "@/lib/utils";
 import { WSMessage } from "@/types";
 
-interface Msg {
+interface Message {
   id: string;
   from: "me" | "partner";
   text: string;
@@ -20,61 +20,158 @@ export default function VoiceChat() {
 
   const { status, micOn, startCall, endCall, toggleMic } = useWebRTC();
 
-  const chatRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [time, setTime] = useState(0);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [text, setText] = useState("");
-  const [started, setStarted] = useState(false);
 
-  // Start call
+  const [time, setTime] = useState(0);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [callStarted, setCallStarted] = useState(false);
+
+  // Start call once
   useEffect(() => {
-    if (match && !started) {
-      setStarted(true);
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "VoiceChat.tsx:startCallEffect",
+        message: "effect ran",
+        data: { hasMatch: !!match, callStarted },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        hypothesisId: "C",
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    if (match && !callStarted) {
+      // #region agent log
+      fetch(
+        "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: "VoiceChat.tsx:startCallEffect",
+            message: "calling startCall",
+            data: {
+              partnerId: match.partner_id,
+              isInitiator: match.is_initiator,
+            },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            hypothesisId: "C",
+          }),
+        }
+      ).catch(() => {});
+      // #endregion
+
+      setCallStarted(true);
       startCall();
     }
-  }, [match, started, startCall]);
+  }, [match, callStarted, startCall]);
 
   // Timer
   useEffect(() => {
-    const i = setInterval(() => setTime((t) => t + 1), 1000);
-    return () => clearInterval(i);
+    const interval = setInterval(() => setTime((t) => t + 1), 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Listen messages
+  // Listen for messages
   useEffect(() => {
-    const fn = (m: WSMessage) => {
-      if (m.type === "chat" && m.message) {
-        setMsgs((p) => [
-          ...p,
-          { id: `${Date.now()}`, from: "partner", text: m.message! },
+    const handler = (msg: WSMessage) => {
+      if (msg.type === "chat" && msg.message) {
+        setMessages((prev) => [
+          ...prev,
+          { id: String(Date.now()), from: "partner", text: msg.message! },
         ]);
-      } else if (m.type === "session_ended") {
+      } else if (msg.type === "session_ended") {
         endCall();
         clearMatch();
       }
     };
-    wsManager.addMessageHandler(fn);
-    return () => wsManager.removeMessageHandler(fn);
+    wsManager.addMessageHandler(handler);
+    return () => wsManager.removeMessageHandler(handler);
   }, [endCall, clearMatch]);
 
-  // Scroll to bottom
+  // Auto scroll
   useEffect(() => {
-    chatRef.current?.scrollTo(0, chatRef.current.scrollHeight);
-  }, [msgs]);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
 
-  const send = () => {
-    const t = text.trim();
-    if (!t || !match) return;
-    setMsgs((p) => [...p, { id: `${Date.now()}`, from: "me", text: t }]);
-    wsManager.sendChat(match.partner_id, t);
-    setText("");
-    // Keep focus on input
-    setTimeout(() => inputRef.current?.focus(), 10);
+  // Send message
+  const sendMessage = () => {
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "VoiceChat.tsx:sendMessage",
+        message: "sendMessage called",
+        data: { input, hasMatch: !!match },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        hypothesisId: "A",
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    const txt = input.trim();
+    if (!txt || !match) return;
+
+    setMessages((prev) => [
+      ...prev,
+      { id: String(Date.now()), from: "me", text: txt },
+    ]);
+    wsManager.sendChat(match.partner_id, txt);
+    setInput("");
+
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "VoiceChat.tsx:sendMessage",
+        message: "message sent, focusing input",
+        data: { txt },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        hypothesisId: "B",
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    // Keep keyboard open
+    setTimeout(() => {
+      inputRef.current?.focus();
+      // #region agent log
+      fetch(
+        "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: "VoiceChat.tsx:sendMessage",
+            message: "focus attempted",
+            data: { inputRefExists: !!inputRef.current },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            hypothesisId: "B",
+          }),
+        }
+      ).catch(() => {});
+      // #endregion
+    }, 50);
   };
 
-  const end = () => {
-    if (match?.session_id) wsManager.endSession(match.session_id);
+  // End session
+  const handleEnd = () => {
+    if (match?.session_id) {
+      wsManager.endSession(match.session_id);
+    }
     endCall();
     clearMatch();
   };
@@ -82,60 +179,27 @@ export default function VoiceChat() {
   if (!match || !user) return null;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "#0f172a",
-      }}
-    >
+    <div className="fixed inset-0 bg-slate-900 flex flex-col">
       {/* Header */}
-      <div
-        style={{
-          background: "#1e293b",
-          padding: "8px 12px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderBottom: "1px solid #334155",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              background: "#7c3aed",
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontWeight: "bold",
-            }}
-          >
+      <header className="shrink-0 bg-slate-800 px-3 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-full bg-violet-600 flex items-center justify-center text-white font-bold">
             {match.partner_username[0].toUpperCase()}
           </div>
           <div>
-            <div style={{ color: "#fff", fontSize: 14, fontWeight: 500 }}>
+            <p className="text-white text-sm font-medium">
               {match.partner_username}
-            </div>
-            <div style={{ color: "#94a3b8", fontSize: 12 }}>
+            </p>
+            <p className="text-xs text-slate-400">
               {formatLevel(match.partner_level)} •
               <span
-                style={{
-                  color:
-                    status === "connected"
-                      ? "#4ade80"
-                      : status === "failed"
-                      ? "#f87171"
-                      : "#fbbf24",
-                }}
+                className={
+                  status === "connected"
+                    ? "text-green-400"
+                    : status === "failed"
+                    ? "text-red-400"
+                    : "text-yellow-400"
+                }
               >
                 {status === "connected"
                   ? " Ulandi"
@@ -143,173 +207,107 @@ export default function VoiceChat() {
                   ? " Xatolik"
                   : " Ulanmoqda..."}
               </span>
-            </div>
+            </p>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            style={{ color: "#fff", fontSize: 14, fontFamily: "monospace" }}
-          >
+        <div className="flex items-center gap-2">
+          <span className="text-white text-sm font-mono">
             {formatTime(time)}
           </span>
           <button
-            onClick={end}
-            style={{
-              background: "#dc2626",
-              color: "#fff",
-              border: "none",
-              padding: "6px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              cursor: "pointer",
-            }}
+            onClick={handleEnd}
+            className="bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg"
           >
             Tugatish
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Voice bar */}
-      <div
-        style={{
-          background: "#1e293b80",
-          padding: "8px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 16,
-          borderBottom: "1px solid #334155",
-        }}
-      >
+      {/* Voice Status */}
+      <div className="shrink-0 bg-slate-800/50 px-3 py-2 flex items-center justify-center gap-4">
         <span
-          style={{
-            color:
-              status === "connected"
-                ? "#4ade80"
-                : status === "failed"
-                ? "#f87171"
-                : "#fbbf24",
-            fontSize: 12,
-          }}
+          className={`text-xs ${
+            status === "connected"
+              ? "text-green-400"
+              : status === "failed"
+              ? "text-red-400"
+              : "text-yellow-400"
+          }`}
         >
           {status === "connected"
             ? "🔊 Ovoz ulandi"
             : status === "failed"
-            ? "❌ Ulanmadi"
+            ? "❌ Xatolik"
             : "⏳ Ulanmoqda..."}
         </span>
         <button
           onClick={toggleMic}
-          style={{
-            background: micOn ? "#16a34a" : "#dc2626",
-            color: "#fff",
-            border: "none",
-            padding: "6px 12px",
-            borderRadius: 20,
-            fontSize: 12,
-            cursor: "pointer",
-          }}
+          className={`px-3 py-1 rounded-full text-xs text-white ${
+            micOn ? "bg-green-600" : "bg-red-600"
+          }`}
         >
           {micOn ? "🎤 Yoniq" : "🔇 O'chiq"}
         </button>
       </div>
 
-      {/* Chat */}
-      <div ref={chatRef} style={{ flex: 1, overflowY: "auto", padding: 12 }}>
-        <div
-          style={{
-            textAlign: "center",
-            color: "#64748b",
-            fontSize: 12,
-            marginBottom: 12,
-          }}
-        >
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2">
+        <p className="text-center text-slate-500 text-xs py-2">
           Suhbat boshlandi
-        </div>
-        {msgs.map((m) => (
+        </p>
+
+        {messages.map((msg) => (
           <div
-            key={m.id}
-            style={{
-              display: "flex",
-              justifyContent: m.from === "me" ? "flex-end" : "flex-start",
-              marginBottom: 8,
-            }}
+            key={msg.id}
+            className={`flex ${
+              msg.from === "me" ? "justify-end" : "justify-start"
+            }`}
           >
             <div
-              style={{
-                maxWidth: "75%",
-                padding: "8px 12px",
-                borderRadius: 16,
-                background: m.from === "me" ? "#7c3aed" : "#334155",
-                color: "#fff",
-                fontSize: 14,
-                wordBreak: "break-word",
-              }}
+              className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm break-words ${
+                msg.from === "me"
+                  ? "bg-violet-600 text-white"
+                  : "bg-slate-700 text-white"
+              }`}
             >
-              {m.text}
+              {msg.text}
             </div>
           </div>
         ))}
       </div>
 
       {/* Input */}
-      <div
-        style={{
-          background: "#1e293b",
-          padding: 8,
-          borderTop: "1px solid #334155",
-        }}
-      >
-        <div style={{ display: "flex", gap: 8 }}>
+      <div className="shrink-0 bg-slate-800 px-3 py-2">
+        <div className="flex gap-2">
           <input
             ref={inputRef}
             type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                send();
+                sendMessage();
               }
             }}
             placeholder="Xabar yozing..."
-            style={{
-              flex: 1,
-              background: "#334155",
-              color: "#fff",
-              border: "none",
-              padding: "10px 16px",
-              borderRadius: 20,
-              fontSize: 16,
-              outline: "none",
-            }}
+            className="flex-1 bg-slate-700 text-white text-base px-4 py-2.5 rounded-full outline-none placeholder-slate-400"
           />
           <button
-            onClick={send}
-            disabled={!text.trim()}
-            style={{
-              width: 44,
-              height: 44,
-              background: text.trim() ? "#7c3aed" : "#475569",
-              border: "none",
-              borderRadius: "50%",
-              cursor: text.trim() ? "pointer" : "default",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+            onClick={sendMessage}
+            disabled={!input.trim()}
+            className="w-11 h-11 rounded-full flex items-center justify-center bg-violet-600 disabled:bg-slate-600"
           >
             <svg
-              width="20"
-              height="20"
+              className="w-5 h-5 text-white"
               fill="none"
               viewBox="0 0 24 24"
-              stroke="#fff"
-              strokeWidth={2}
+              stroke="currentColor"
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                strokeWidth={2}
                 d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
               />
             </svg>
