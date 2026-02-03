@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const {
     user,
     isAuthenticated,
+    _hasHydrated,
     queueStatus,
     currentMatch,
     isInSession,
@@ -27,12 +28,21 @@ export default function DashboardPage() {
   const [waitTime, setWaitTime] = useState(0);
   const [onlineCount, setOnlineCount] = useState(0);
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (only after store has loaded from storage)
   useEffect(() => {
+    if (!_hasHydrated) return;
     if (!isAuthenticated) {
       router.push("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [_hasHydrated, isAuthenticated, router]);
+
+  // Fallback: if store doesn't hydrate within 1s, treat as ready
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      useStore.setState({ _hasHydrated: true });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Fetch online users count
   useEffect(() => {

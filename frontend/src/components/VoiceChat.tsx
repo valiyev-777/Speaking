@@ -151,7 +151,7 @@ export default function VoiceChat() {
   if (!currentMatch || !user) return null;
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-slate-900">
+    <div className="h-[100dvh] sm:h-screen flex flex-col overflow-hidden bg-slate-900">
       {/* Header */}
       <header className="flex-shrink-0 bg-slate-800 border-b border-slate-700 px-2 sm:px-4 py-2 sm:py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
@@ -264,12 +264,12 @@ export default function VoiceChat() {
         </div>
       </div>
 
-      {/* Chat Container */}
-      <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full min-h-0">
+      {/* Chat Container - with padding for fixed input */}
+      <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full min-h-0 overflow-hidden">
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-3"
+          className="flex-1 overflow-y-auto p-2 sm:p-4 pb-24 space-y-2 sm:space-y-3"
           style={{ minHeight: 0 }}
         >
           <div className="text-center py-2">
@@ -330,8 +330,8 @@ export default function VoiceChat() {
         )}
       </div>
 
-      {/* Chat Input */}
-      <div className="flex-shrink-0 bg-slate-800 border-t border-slate-700 p-2 sm:p-4">
+      {/* Chat Input - fixed at bottom, always visible */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 bg-slate-800 border-t border-slate-700 p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <form onSubmit={handleSendChat} className="max-w-3xl mx-auto">
           <div className="flex items-center gap-2 sm:gap-3">
             <input
