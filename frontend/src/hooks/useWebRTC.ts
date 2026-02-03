@@ -38,13 +38,14 @@ const ICE_SERVERS: RTCIceServer[] = [
 type ConnectionStatus = "idle" | "connecting" | "connected" | "failed";
 
 export function useWebRTC() {
-  const { currentMatch } = useStore();
+  const currentMatch = useStore((state) => state.currentMatch);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
   const isNegotiating = useRef(false);
+  const streamPromiseRef = useRef<Promise<MediaStream> | null>(null);
 
   const [connectionState, setConnectionState] =
     useState<ConnectionStatus>("idle");
@@ -116,30 +117,36 @@ export function useWebRTC() {
       return localStreamRef.current;
     }
 
-    // Prevent concurrent calls to getUserMedia
-    const existingStream = localStreamRef.current;
-    if (existingStream) return existingStream;
+    if (streamPromiseRef.current) {
+      return streamPromiseRef.current;
+    }
 
     console.log("[WebRTC] Requesting microphone...");
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
+    streamPromiseRef.current = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
 
-      localStreamRef.current = stream;
-      console.log("[WebRTC] Microphone granted");
-      return stream;
-    } catch (error) {
-      console.error("[WebRTC] Microphone error:", error);
-      alert("Mikrofon ruxsati berilmadi!");
-      throw error;
-    }
+        localStreamRef.current = stream;
+        console.log("[WebRTC] Microphone granted");
+        return stream;
+      } catch (error) {
+        console.error("[WebRTC] Microphone error:", error);
+        alert("Mikrofon ruxsati berilmadi!");
+        throw error;
+      } finally {
+        streamPromiseRef.current = null;
+      }
+    })();
+
+    return streamPromiseRef.current;
   }, []);
 
   // Process queued ICE candidates
@@ -266,7 +273,7 @@ export function useWebRTC() {
     };
 
     return pc;
-  }, [currentMatch]);
+  }, [currentMatch?.partner_id, currentMatch?.is_initiator]); // More stable deps
 
   // Start call (initiator creates offer)
   const startCall = useCallback(async () => {
@@ -485,12 +492,10 @@ export function useWebRTC() {
 
     window.addEventListener("beforeunload", handleUnload);
     window.addEventListener("pagehide", handleUnload);
-    window.addEventListener("popstate", handleUnload);
 
     return () => {
       window.removeEventListener("beforeunload", handleUnload);
       window.removeEventListener("pagehide", handleUnload);
-      window.removeEventListener("popstate", handleUnload);
       cleanup();
     };
   }, [cleanup]);

@@ -10,15 +10,13 @@ import VoiceChat from "@/components/VoiceChat";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const {
-    user,
-    isAuthenticated,
-    _hasHydrated,
-    queueStatus,
-    currentMatch,
-    isInSession,
-    logout,
-  } = useStore();
+  const user = useStore(state => state.user);
+  const isAuthenticated = useStore(state => state.isAuthenticated);
+  const _hasHydrated = useStore(state => state._hasHydrated);
+  const queueStatus = useStore(state => state.queueStatus);
+  const currentMatch = useStore(state => state.currentMatch);
+  const isInSession = useStore(state => state.isInSession);
+  const logout = useStore(state => state.logout);
   const { isConnected, joinQueue, leaveQueue } = useWebSocket();
 
   const [selectedMode, setSelectedMode] = useState<"roulette" | "level_filter">(
@@ -138,9 +136,8 @@ export default function DashboardPage() {
 
             <div className="flex items-center gap-1.5 bg-slate-800 px-2 sm:px-3 py-1.5 rounded-lg">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  isConnected ? "bg-emerald-500" : "bg-red-500"
-                }`}
+                className={`w-2 h-2 rounded-full ${isConnected ? "bg-emerald-500" : "bg-red-500"
+                  }`}
               />
               <span className="text-xs sm:text-sm text-slate-400">
                 {isConnected ? "Ulangan" : "Ulanmoqda..."}
@@ -272,11 +269,10 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Roulette Mode */}
             <div
-              className={`card cursor-pointer transition-all ${
-                selectedMode === "roulette"
+              className={`card cursor-pointer transition-all ${selectedMode === "roulette"
                   ? "ring-2 ring-primary-500 bg-primary-600/10"
                   : "hover:bg-slate-700/50"
-              }`}
+                }`}
               onClick={() => setSelectedMode("roulette")}
             >
               <div className="text-4xl mb-4">🎲</div>
@@ -296,11 +292,10 @@ export default function DashboardPage() {
 
             {/* Level Filter Mode */}
             <div
-              className={`card cursor-pointer transition-all ${
-                selectedMode === "level_filter"
+              className={`card cursor-pointer transition-all ${selectedMode === "level_filter"
                   ? "ring-2 ring-primary-500 bg-primary-600/10"
                   : "hover:bg-slate-700/50"
-              }`}
+                }`}
               onClick={() => setSelectedMode("level_filter")}
             >
               <div className="text-4xl mb-4">🎯</div>
