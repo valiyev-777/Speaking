@@ -5,19 +5,10 @@ import { useStore } from "@/lib/store";
 import { wsManager } from "@/lib/websocket";
 import { WSMessage } from "@/types";
 
-// ICE Servers - STUN for discovery, TURN for relay
 const ICE_SERVERS: RTCIceServer[] = [
-  // Google STUN
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" },
-
-  // Twilio STUN
-  { urls: "stun:global.stun.twilio.com:3478" },
-
-  // Free TURN servers
   {
     urls: "turn:openrelay.metered.ca:80",
     username: "openrelayproject",
@@ -28,555 +19,205 @@ const ICE_SERVERS: RTCIceServer[] = [
     username: "openrelayproject",
     credential: "openrelayproject",
   },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
 ];
-
-type ConnectionStatus = "idle" | "connecting" | "connected" | "failed";
 
 export function useWebRTC() {
   const currentMatch = useStore((state) => state.currentMatch);
 
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
-  const isNegotiating = useRef(false);
-  const streamPromiseRef = useRef<Promise<MediaStream> | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const [connectionState, setConnectionState] =
-    useState<ConnectionStatus>("idle");
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isRelayFallback, setIsRelayFallback] = useState(false);
+  const [status, setStatus] = useState<
+    "idle" | "connecting" | "connected" | "failed"
+  >("idle");
+  const [micOn, setMicOn] = useState(true);
 
-  // Create audio element on mount
+  // Audio element
   useEffect(() => {
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.setAttribute("playsinline", "true");
-    audio.style.display = "none";
-    document.body.appendChild(audio);
-    remoteAudioRef.current = audio;
-
+    audioRef.current = audio;
     return () => {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = null;
-        remoteAudioRef.current.remove();
-        remoteAudioRef.current = null;
-      }
+      audio.srcObject = null;
     };
   }, []);
 
-  // Cleanup function
+  // Cleanup
   const cleanup = useCallback(() => {
-    console.log("[WebRTC] Cleanup");
-
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        try {
-          track.enabled = false;
-          track.stop();
-        } catch (e) {
-          console.error("[WebRTC] Error stopping track:", e);
-        }
-        console.log("[WebRTC] Stopped track:", track.kind);
-      });
-      localStreamRef.current = null;
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
     }
-
-    if (peerConnectionRef.current) {
-      try {
-        peerConnectionRef.current.getSenders().forEach((sender) => {
-          if (sender.track) {
-            sender.track.enabled = false;
-            sender.track.stop();
-          }
-        });
-        peerConnectionRef.current.close();
-      } catch (e) {
-        console.error("[WebRTC] Error closing peer connection:", e);
-      }
-      peerConnectionRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.srcObject = null;
     }
-
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = null;
-      remoteAudioRef.current.pause();
-    }
-
-    iceCandidatesQueue.current = [];
-    isNegotiating.current = false;
-    setIsRelayFallback(false);
-    setConnectionState("idle");
+    setStatus("idle");
   }, []);
 
-  // Get microphone access
-  const getLocalStream = useCallback(async (): Promise<MediaStream> => {
-    // If we already have a stream, return it
-    if (localStreamRef.current) {
-      return localStreamRef.current;
-    }
+  // Get mic
+  const getMic = useCallback(async () => {
+    if (streamRef.current) return streamRef.current;
 
-    // If there's a pending request, wait for it
-    if (streamPromiseRef.current) {
-      return streamPromiseRef.current;
-    }
-
-    console.log("[WebRTC] Requesting microphone...");
-
-    const promise = navigator.mediaDevices
-      .getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      })
-      .then((stream) => {
-        localStreamRef.current = stream;
-        console.log("[WebRTC] Microphone granted");
-        streamPromiseRef.current = null;
-        return stream;
-      })
-      .catch((error) => {
-        console.error("[WebRTC] Microphone error:", error);
-        streamPromiseRef.current = null;
-        alert("Mikrofon ruxsati berilmadi!");
-        throw error;
-      });
-
-    streamPromiseRef.current = promise;
-    return promise;
-  }, []);
-
-  // Process queued ICE candidates
-  const processIceCandidates = useCallback(async () => {
-    const pc = peerConnectionRef.current;
-    if (!pc || !pc.remoteDescription) return;
-
-    console.log(
-      "[WebRTC] Processing",
-      iceCandidatesQueue.current.length,
-      "queued candidates"
-    );
-
-    while (iceCandidatesQueue.current.length > 0) {
-      const candidate = iceCandidatesQueue.current.shift();
-      if (candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          console.log("[WebRTC] Added queued ICE candidate");
-        } catch (e) {
-          console.error("[WebRTC] Error adding queued candidate:", e);
-        }
-      }
-    }
-  }, []);
-
-  const scheduleRelayFallback = useCallback(async () => {
-    if (!currentMatch?.is_initiator) return;
-
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-    }
-
-    reconnectTimerRef.current = setTimeout(async () => {
-      const pc = peerConnectionRef.current;
-      if (!pc || pc.connectionState === "connected") {
-        reconnectTimerRef.current = null;
-        return;
-      }
-
-      try {
-        console.log("[WebRTC] Relay fallback: forcing TURN (relay)");
-        setIsRelayFallback(true);
-        setConnectionState("connecting");
-        pc.setConfiguration({
-          iceServers: ICE_SERVERS,
-          iceTransportPolicy: "relay",
-        });
-        pc.restartIce();
-
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false,
-          iceRestart: true,
-        });
-        await pc.setLocalDescription(offer);
-        wsManager.sendSignaling("offer", currentMatch.partner_id, {
-          type: offer.type,
-          sdp: offer.sdp,
-        });
-        console.log("[WebRTC] Relay fallback offer sent");
-      } catch (error) {
-        console.error("[WebRTC] Relay fallback failed:", error);
-      }
-    }, 8000);
-  }, [currentMatch?.is_initiator, currentMatch?.partner_id]);
-
-  // Create peer connection
-  const createPeerConnection = useCallback((): RTCPeerConnection => {
-    if (peerConnectionRef.current) {
-      return peerConnectionRef.current;
-    }
-
-    console.log("[WebRTC] Creating peer connection");
-
-    const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
-      iceCandidatePoolSize: 10,
+    console.log("[WebRTC] Requesting mic...");
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
     });
+    streamRef.current = stream;
+    console.log("[WebRTC] Mic OK");
+    return stream;
+  }, []);
 
-    peerConnectionRef.current = pc;
+  // Create PC
+  const createPC = useCallback(() => {
+    if (pcRef.current) return pcRef.current;
 
-    // ICE candidate handler
-    pc.onicecandidate = (event) => {
-      if (event.candidate && currentMatch) {
-        const candidateType = event.candidate.type || "unknown";
-        const protocol = event.candidate.protocol || "unknown";
-        console.log(
-          `[WebRTC] ICE candidate: type=${candidateType}, protocol=${protocol}`
-        );
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pcRef.current = pc;
 
+    pc.onicecandidate = (e) => {
+      if (e.candidate && currentMatch) {
         wsManager.sendSignaling("ice_candidate", currentMatch.partner_id, {
-          candidate: event.candidate.toJSON(),
+          candidate: e.candidate.toJSON(),
         });
-      } else if (!event.candidate) {
-        console.log("[WebRTC] ICE gathering complete");
       }
     };
 
-    // ICE gathering state
-    pc.onicegatheringstatechange = () => {
-      console.log("[WebRTC] ICE gathering state:", pc.iceGatheringState);
-    };
-
-    // ICE connection state
     pc.oniceconnectionstatechange = () => {
-      console.log("[WebRTC] ICE connection state:", pc.iceConnectionState);
-
+      console.log("[WebRTC] ICE:", pc.iceConnectionState);
       if (
         pc.iceConnectionState === "connected" ||
         pc.iceConnectionState === "completed"
       ) {
-        setConnectionState("connected");
-        setIsRelayFallback(false);
-        if (reconnectTimerRef.current) {
-          clearTimeout(reconnectTimerRef.current);
-          reconnectTimerRef.current = null;
-        }
+        setStatus("connected");
       } else if (pc.iceConnectionState === "failed") {
-        console.log("[WebRTC] ICE failed, attempting restart...");
-        // Try ICE restart
-        pc.restartIce();
-        setConnectionState("connecting");
-        scheduleRelayFallback();
-
-        // If still failing after 5 seconds, notify user
-        setTimeout(() => {
-          if (pc.iceConnectionState === "failed") {
-            console.log("[WebRTC] ICE restart failed");
-            setConnectionState("failed");
-          }
-        }, 5000);
-      } else if (pc.iceConnectionState === "disconnected") {
-        console.log("[WebRTC] ICE disconnected, waiting for reconnection...");
-        setConnectionState("connecting");
-        scheduleRelayFallback();
-
-        // Give it 10 seconds to reconnect
-        setTimeout(() => {
-          if (pc.iceConnectionState === "disconnected") {
-            console.log("[WebRTC] Still disconnected, restarting ICE...");
-            pc.restartIce();
-          }
-        }, 10000);
+        setStatus("failed");
       }
     };
 
-    // Connection state
-    pc.onconnectionstatechange = () => {
-      console.log("[WebRTC] Connection state:", pc.connectionState);
-
-      if (pc.connectionState === "connected") {
-        setConnectionState("connected");
-        setIsRelayFallback(false);
-        if (reconnectTimerRef.current) {
-          clearTimeout(reconnectTimerRef.current);
-          reconnectTimerRef.current = null;
-        }
-      } else if (pc.connectionState === "failed") {
-        setConnectionState("failed");
-      }
-    };
-
-    // Remote track handler
-    pc.ontrack = (event) => {
-      console.log("[WebRTC] Received remote track:", event.track.kind);
-
-      if (remoteAudioRef.current && event.streams[0]) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-
-        // Try to play
-        remoteAudioRef.current
-          .play()
-          .then(() => console.log("[WebRTC] Audio playing"))
-          .catch((e) => console.log("[WebRTC] Audio play blocked:", e.message));
+    pc.ontrack = (e) => {
+      console.log("[WebRTC] Got track");
+      if (audioRef.current && e.streams[0]) {
+        audioRef.current.srcObject = e.streams[0];
+        audioRef.current.play().catch(() => {});
       }
     };
 
     return pc;
-  }, [currentMatch?.partner_id, currentMatch?.is_initiator]); // More stable deps
+  }, [currentMatch]);
 
-  // Start call (initiator creates offer)
+  // Start call
   const startCall = useCallback(async () => {
-    if (!currentMatch) {
-      console.log("[WebRTC] No match, cannot start call");
-      return;
-    }
+    if (!currentMatch) return;
 
-    console.log(
-      "[WebRTC] Starting call, initiator:",
-      currentMatch.is_initiator
-    );
-    setConnectionState("connecting");
+    console.log("[WebRTC] Starting, initiator:", currentMatch.is_initiator);
+    setStatus("connecting");
 
     try {
-      const stream = await getLocalStream();
-      const pc = createPeerConnection();
+      const stream = await getMic();
+      const pc = createPC();
 
-      // Add local audio track
-      const audioTrack = stream.getAudioTracks()[0];
-      if (audioTrack) {
-        pc.addTrack(audioTrack, stream);
-        console.log("[WebRTC] Added local audio track");
-      }
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      // Only initiator creates offer
       if (currentMatch.is_initiator) {
-        isNegotiating.current = true;
-
-        console.log("[WebRTC] Creating offer...");
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false,
-        });
-
+        const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        console.log("[WebRTC] Local description set (offer)");
-
         wsManager.sendSignaling("offer", currentMatch.partner_id, {
           type: offer.type,
           sdp: offer.sdp,
         });
         console.log("[WebRTC] Offer sent");
-        scheduleRelayFallback();
-
-        isNegotiating.current = false;
-      } else {
-        console.log("[WebRTC] Waiting for offer from initiator...");
-        scheduleRelayFallback();
       }
-    } catch (error) {
-      console.error("[WebRTC] Start call error:", error);
-      setConnectionState("failed");
-      cleanup();
+    } catch (err) {
+      console.error("[WebRTC] Error:", err);
+      setStatus("failed");
     }
-  }, [
-    currentMatch,
-    getLocalStream,
-    createPeerConnection,
-    scheduleRelayFallback,
-    cleanup,
-  ]);
+  }, [currentMatch, getMic, createPC]);
 
-  // Handle incoming offer
+  // Handle offer
   const handleOffer = useCallback(
-    async (offerData: RTCSessionDescriptionInit) => {
+    async (data: RTCSessionDescriptionInit) => {
       if (!currentMatch) return;
-
-      console.log("[WebRTC] Received offer");
+      console.log("[WebRTC] Got offer");
 
       try {
-        const stream = await getLocalStream();
-        const pc = createPeerConnection();
+        const stream = await getMic();
+        const pc = createPC();
 
-        // Add track if not added
         if (pc.getSenders().length === 0) {
-          const audioTrack = stream.getAudioTracks()[0];
-          if (audioTrack) {
-            pc.addTrack(audioTrack, stream);
-            console.log("[WebRTC] Added local audio track (on offer)");
-          }
+          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
         }
 
-        // Set remote description
-        await pc.setRemoteDescription(new RTCSessionDescription(offerData));
-        console.log("[WebRTC] Remote description set (offer)");
-
-        // Process any queued candidates
-        await processIceCandidates();
-
-        // Create and send answer
-        console.log("[WebRTC] Creating answer...");
+        await pc.setRemoteDescription(new RTCSessionDescription(data));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        console.log("[WebRTC] Local description set (answer)");
 
         wsManager.sendSignaling("answer", currentMatch.partner_id, {
           type: answer.type,
           sdp: answer.sdp,
         });
         console.log("[WebRTC] Answer sent");
-      } catch (error) {
-        console.error("[WebRTC] Handle offer error:", error);
-        setConnectionState("failed");
-        cleanup();
+      } catch (err) {
+        console.error("[WebRTC] Offer error:", err);
       }
     },
-    [currentMatch, getLocalStream, createPeerConnection, processIceCandidates]
+    [currentMatch, getMic, createPC]
   );
 
-  // Handle incoming answer
-  const handleAnswer = useCallback(
-    async (answerData: RTCSessionDescriptionInit) => {
-      const pc = peerConnectionRef.current;
-      if (!pc) {
-        console.log("[WebRTC] No peer connection for answer");
-        return;
-      }
+  // Handle answer
+  const handleAnswer = useCallback(async (data: RTCSessionDescriptionInit) => {
+    console.log("[WebRTC] Got answer");
+    const pc = pcRef.current;
+    if (pc && pc.signalingState === "have-local-offer") {
+      await pc.setRemoteDescription(new RTCSessionDescription(data));
+    }
+  }, []);
 
-      console.log("[WebRTC] Received answer");
+  // Handle ICE
+  const handleIce = useCallback(async (data: RTCIceCandidateInit) => {
+    const pc = pcRef.current;
+    if (pc && pc.remoteDescription) {
+      await pc.addIceCandidate(new RTCIceCandidate(data));
+    }
+  }, []);
 
-      try {
-        if (pc.signalingState === "have-local-offer") {
-          await pc.setRemoteDescription(new RTCSessionDescription(answerData));
-          console.log("[WebRTC] Remote description set (answer)");
-
-          // Process any queued candidates
-          await processIceCandidates();
-        } else {
-          console.log(
-            "[WebRTC] Unexpected signaling state for answer:",
-            pc.signalingState
-          );
-        }
-      } catch (error) {
-        console.error("[WebRTC] Handle answer error:", error);
-      }
-    },
-    [processIceCandidates]
-  );
-
-  // Handle incoming ICE candidate
-  const handleIceCandidate = useCallback(
-    async (candidateData: RTCIceCandidateInit) => {
-      const pc = peerConnectionRef.current;
-
-      if (!pc) {
-        console.log("[WebRTC] Queuing ICE candidate (no PC yet)");
-        iceCandidatesQueue.current.push(candidateData);
-        return;
-      }
-
-      if (!pc.remoteDescription) {
-        console.log("[WebRTC] Queuing ICE candidate (no remote desc)");
-        iceCandidatesQueue.current.push(candidateData);
-        return;
-      }
-
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidateData));
-        console.log("[WebRTC] Added ICE candidate");
-      } catch (error) {
-        console.error("[WebRTC] Add ICE candidate error:", error);
-      }
-    },
-    []
-  );
-
-  // Listen for signaling messages (only offer, answer, ice_candidate)
+  // Listen signaling
   useEffect(() => {
-    const handleSignaling = (message: WSMessage) => {
-      if (message.type === "offer" && message.data) {
-        console.log("[WebRTC] Received offer");
-        handleOffer(message.data);
-      } else if (message.type === "answer" && message.data) {
-        console.log("[WebRTC] Received answer");
-        handleAnswer(message.data);
-      } else if (message.type === "ice_candidate" && message.data?.candidate) {
-        handleIceCandidate(message.data.candidate);
+    const handler = (msg: WSMessage) => {
+      if (msg.type === "offer" && msg.data) {
+        handleOffer(msg.data);
+      } else if (msg.type === "answer" && msg.data) {
+        handleAnswer(msg.data);
+      } else if (msg.type === "ice_candidate" && msg.data?.candidate) {
+        handleIce(msg.data.candidate);
       }
     };
+    wsManager.addMessageHandler(handler);
+    return () => wsManager.removeMessageHandler(handler);
+  }, [handleOffer, handleAnswer, handleIce]);
 
-    wsManager.addMessageHandler(handleSignaling);
-    return () => wsManager.removeMessageHandler(handleSignaling);
-  }, [handleOffer, handleAnswer, handleIceCandidate]);
-
-  // Toggle microphone
-  const toggleAudio = useCallback(() => {
-    const stream = localStreamRef.current;
+  // Toggle mic
+  const toggleMic = useCallback(() => {
+    const stream = streamRef.current;
     if (!stream) return;
-
     const track = stream.getAudioTracks()[0];
-    if (!track) return;
-
-    const newState = !track.enabled;
-    track.enabled = newState;
-
-    // Also update sender
-    const pc = peerConnectionRef.current;
-    if (pc) {
-      const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
-      if (sender?.track) {
-        sender.track.enabled = newState;
-      }
+    if (track) {
+      track.enabled = !track.enabled;
+      setMicOn(track.enabled);
     }
-
-    setIsAudioEnabled(newState);
-    console.log("[WebRTC] Microphone:", newState ? "ON" : "OFF");
   }, []);
 
   // End call
   const endCall = useCallback(() => {
-    console.log("[WebRTC] Ending call");
     cleanup();
-    setIsAudioEnabled(true);
+    setMicOn(true);
   }, [cleanup]);
 
-  // Cleanup on unmount and page leave
-  useEffect(() => {
-    const handleUnload = () => {
-      console.log("[WebRTC] Page leaving, cleaning up...");
-      cleanup();
-    };
-
-    window.addEventListener("beforeunload", handleUnload);
-    window.addEventListener("pagehide", handleUnload);
-
-    return () => {
-      window.removeEventListener("beforeunload", handleUnload);
-      window.removeEventListener("pagehide", handleUnload);
-      cleanup();
-    };
-  }, [cleanup]);
-
-  return {
-    connectionState,
-    isAudioEnabled,
-    isRelayFallback,
-    startCall,
-    endCall,
-    toggleAudio,
-  };
+  return { status, micOn, startCall, endCall, toggleMic };
 }

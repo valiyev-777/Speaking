@@ -7,430 +7,225 @@ import { wsManager } from "@/lib/websocket";
 import { formatLevel, formatTime } from "@/lib/utils";
 import { WSMessage } from "@/types";
 
-interface ChatMessage {
+interface ChatMsg {
   id: string;
   from: "me" | "partner";
-  message: string;
+  text: string;
   time: Date;
 }
 
 export default function VoiceChat() {
-  const user = useStore((state) => state.user);
-  const currentMatch = useStore((state) => state.currentMatch);
-  const clearMatch = useStore((state) => state.clearMatch);
-  const {
-    connectionState,
-    isAudioEnabled,
-    isRelayFallback,
-    startCall,
-    endCall,
-    toggleAudio,
-  } = useWebRTC();
+  const user = useStore((s) => s.user);
+  const currentMatch = useStore((s) => s.currentMatch);
+  const clearMatch = useStore((s) => s.clearMatch);
 
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const inputWrapRef = useRef<HTMLDivElement>(null);
-  const startCallRef = useRef(startCall);
-  startCallRef.current = startCall;
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
-  const [sessionTime, setSessionTime] = useState(0);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [isCallStarted, setIsCallStarted] = useState(false);
-  const [wsConnected, setWsConnected] = useState(wsManager.isConnected);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const [showAudioPrompt, setShowAudioPrompt] = useState(false);
+  const { status, micOn, startCall, endCall, toggleMic } = useWebRTC();
 
-  // Check if audio needs user interaction (mobile)
+  const chatRef = useRef<HTMLDivElement>(null);
+  const [time, setTime] = useState(0);
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
+  const [started, setStarted] = useState(false);
+
+  // Start call once
   useEffect(() => {
-    if (connectionState === "connected") {
-      // Small delay to check if audio is working
-      const timer = setTimeout(() => {
-        const audioElements = document.querySelectorAll("audio");
-        audioElements.forEach((audio) => {
-          if (audio.paused && audio.srcObject) {
-            setShowAudioPrompt(true);
-          }
-        });
-      }, 2000);
-      return () => clearTimeout(timer);
+    if (currentMatch && !started) {
+      setStarted(true);
+      startCall();
     }
-  }, [connectionState]);
+  }, [currentMatch, started, startCall]);
 
-  const enableAudio = () => {
-    const audioElements = document.querySelectorAll("audio");
-    audioElements.forEach((audio) => {
-      audio.play().catch(console.error);
-    });
-    setShowAudioPrompt(false);
-  };
-
-  // Handle incoming messages
+  // Timer
   useEffect(() => {
-    const handleMessage = (message: WSMessage) => {
-      if (message.type === "chat") {
-        setChatMessages((prev) => [
-          ...prev,
+    const i = setInterval(() => setTime((t) => t + 1), 1000);
+    return () => clearInterval(i);
+  }, []);
+
+  // Messages
+  useEffect(() => {
+    const handler = (msg: WSMessage) => {
+      if (msg.type === "chat" && msg.message) {
+        setMsgs((p) => [
+          ...p,
           {
-            id: `${Date.now()}-${Math.random()}`,
-            from: "partner" as const,
-            message: message.message || "",
+            id: Date.now().toString(),
+            from: "partner",
+            text: msg.message!,
             time: new Date(),
           },
         ]);
-      } else if (message.type === "session_ended") {
+      } else if (msg.type === "session_ended") {
         endCall();
         clearMatch();
-      } else if (message.type === "connection_status") {
-        setWsConnected(message.data?.connected || false);
       }
     };
-
-    wsManager.addMessageHandler(handleMessage);
-    return () => wsManager.removeMessageHandler(handleMessage);
+    wsManager.addMessageHandler(handler);
+    return () => wsManager.removeMessageHandler(handler);
   }, [endCall, clearMatch]);
 
-  // iOS: move input up when keyboard opens (visualViewport)
+  // Scroll
   useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const onResize = () => {
-      const offset = window.innerHeight - vv.height;
-      setKeyboardOffset(offset > 60 ? offset : 0);
-    };
-    vv.addEventListener("resize", onResize);
-    vv.addEventListener("scroll", onResize);
-    return () => {
-      vv.removeEventListener("resize", onResize);
-      vv.removeEventListener("scroll", onResize);
-    };
-  }, []);
-
-  // Start voice call when matched (ref so timeout is not cleared when startCall identity changes)
-  useEffect(() => {
-    if (!currentMatch || isCallStarted) return;
-    setIsCallStarted(true);
-    const t = setTimeout(() => {
-      startCallRef
-        .current?.()
-        .catch((e: unknown) =>
-          console.error("[VoiceChat] startCall failed:", e)
-        );
-    }, 300);
-    return () => clearTimeout(t);
-  }, [currentMatch?.partner_id, isCallStarted]);
-
-  // Check if user is at bottom of chat
-  const handleScroll = useCallback(() => {
-    if (chatContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } =
-        chatContainerRef.current;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-      setShouldAutoScroll(isAtBottom);
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
-  }, []);
+  }, [msgs]);
 
-  // Auto-scroll chat only if user is at bottom
-  useEffect(() => {
-    if (chatContainerRef.current && shouldAutoScroll) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
-    }
-  }, [chatMessages, shouldAutoScroll]);
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    const txt = input.trim();
+    if (!txt || !currentMatch) return;
+    setMsgs((p) => [
+      ...p,
+      { id: Date.now().toString(), from: "me", text: txt, time: new Date() },
+    ]);
+    wsManager.sendChat(currentMatch.partner_id, txt);
+    setInput("");
+  };
 
-  // Session timer
-  useEffect(() => {
-    const interval = setInterval(
-      () => setSessionTime((prev) => prev + 1),
-      1000
-    );
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleEndCall = () => {
+  const handleEnd = () => {
     if (currentMatch?.session_id) {
       wsManager.endSession(currentMatch.session_id);
     }
     endCall();
     clearMatch();
-    setIsCallStarted(false);
-  };
-
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (chatInput.trim() && currentMatch) {
-      const msg = chatInput.trim();
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          from: "me",
-          message: msg,
-          time: new Date(),
-        },
-      ]);
-      wsManager.sendChat(currentMatch.partner_id, msg);
-      setChatInput("");
-      setShouldAutoScroll(true);
-    }
-  };
-
-  const scrollToBottom = () => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
-      setShouldAutoScroll(true);
-    }
   };
 
   if (!currentMatch || !user) return null;
 
   return (
-    <div
-      className="fixed inset-0 flex flex-col overflow-hidden bg-slate-900 z-10"
-      style={{ height: "100dvh", maxHeight: "100dvh" }}
-    >
+    <div className="fixed inset-0 bg-slate-900 flex flex-col">
       {/* Header */}
-      <header className="flex-shrink-0 bg-slate-800 border-b border-slate-700 px-2 sm:px-4 py-2 sm:py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
-              <span className="text-sm sm:text-lg font-bold text-white">
-                {currentMatch.partner_username[0].toUpperCase()}
+      <div className="bg-slate-800 px-3 py-2 flex items-center justify-between border-b border-slate-700">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold">
+            {currentMatch.partner_username[0].toUpperCase()}
+          </div>
+          <div>
+            <div className="text-white text-sm font-medium">
+              {currentMatch.partner_username}
+            </div>
+            <div className="text-xs text-slate-400">
+              {formatLevel(currentMatch.partner_level)} •
+              <span
+                className={
+                  status === "connected"
+                    ? "text-green-400"
+                    : status === "failed"
+                    ? "text-red-400"
+                    : "text-yellow-400"
+                }
+              >
+                {status === "connected"
+                  ? " Ulandi"
+                  : status === "failed"
+                  ? " Xatolik"
+                  : " Ulanmoqda..."}
               </span>
             </div>
-            <div className="min-w-0">
-              <h2 className="text-white font-semibold text-sm sm:text-base truncate">
-                {currentMatch.partner_username}
-              </h2>
-              <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                <span className="text-primary-400">
-                  {formatLevel(currentMatch.partner_level)}
-                </span>
-                <span
-                  className={
-                    connectionState === "connected"
-                      ? "text-emerald-400"
-                      : connectionState === "failed"
-                      ? "text-red-400"
-                      : "text-yellow-400"
-                  }
-                >
-                  {connectionState === "connected"
-                    ? "✓"
-                    : connectionState === "failed"
-                    ? "✗"
-                    : "..."}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-            <div className="text-white font-mono text-sm sm:text-lg">
-              {formatTime(sessionTime)}
-            </div>
-            <button
-              onClick={handleEndCall}
-              className="btn btn-danger text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 shadow-lg"
-            >
-              Tugatish
-            </button>
           </div>
         </div>
-      </header>
-
-      {/* Audio Enable Prompt (for mobile) */}
-      {showAudioPrompt && (
-        <div className="flex-shrink-0 bg-yellow-600/90 backdrop-blur-sm p-2 sm:p-3">
-          <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
-            <span className="text-white text-xs sm:text-sm font-medium">
-              Ovozni eshitish uchun bosing
-            </span>
-            <button
-              onClick={enableAudio}
-              className="bg-white text-yellow-600 px-3 py-1 rounded-full text-xs sm:text-sm font-bold shadow-md active:scale-95 transition-all"
-            >
-              🔊 Ovozni yoqish
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Voice Status Bar */}
-      <div className="flex-shrink-0 bg-slate-800/50 border-b border-slate-700 p-2 sm:p-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-center gap-3 sm:gap-6">
-          {connectionState === "connected" ? (
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="flex items-end gap-0.5 h-4 sm:h-5">
-                {[40, 70, 100, 60, 30].map((h, i) => (
-                  <div
-                    key={i}
-                    className="w-0.5 sm:w-1 bg-emerald-500 rounded-full animate-pulse"
-                    style={{ height: `${h}%`, animationDelay: `${i * 150}ms` }}
-                  />
-                ))}
-              </div>
-              <span className="text-emerald-400 text-xs sm:text-sm font-medium">
-                Ulandi
-              </span>
-            </div>
-          ) : connectionState === "failed" ? (
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="w-3 h-3 sm:w-4 sm:h-4 bg-red-500 rounded-full shadow-lg shadow-red-500/20" />
-              <span className="text-red-400 text-xs sm:text-sm font-medium">
-                Xatolik
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-yellow-400 text-xs sm:text-sm font-medium">
-                {isRelayFallback ? "TURN orqali ulanmoqda..." : "Ulanmoqda..."}
-              </span>
-            </div>
-          )}
-
+        <div className="flex items-center gap-2">
+          <span className="text-white text-sm font-mono">
+            {formatTime(time)}
+          </span>
           <button
-            onClick={toggleAudio}
-            className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold shadow-lg transition-all active:scale-95 ${
-              isAudioEnabled
-                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20"
-                : "bg-red-600 hover:bg-red-700 text-white shadow-red-500/20"
+            onClick={handleEnd}
+            className="bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg"
+          >
+            Tugatish
+          </button>
+        </div>
+      </div>
+
+      {/* Voice bar */}
+      <div className="bg-slate-800/50 px-3 py-2 flex items-center justify-center gap-4 border-b border-slate-700">
+        {status === "connected" ? (
+          <span className="text-green-400 text-xs">🔊 Ovoz ulandi</span>
+        ) : status === "failed" ? (
+          <span className="text-red-400 text-xs">❌ Ulanmadi</span>
+        ) : (
+          <span className="text-yellow-400 text-xs">⏳ Ulanmoqda...</span>
+        )}
+        <button
+          onClick={toggleMic}
+          className={`px-3 py-1 rounded-full text-xs font-medium ${
+            micOn ? "bg-green-600 text-white" : "bg-red-600 text-white"
+          }`}
+        >
+          {micOn ? "🎤 Yoniq" : "🔇 O'chiq"}
+        </button>
+      </div>
+
+      {/* Chat messages */}
+      <div ref={chatRef} className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="text-center text-slate-500 text-xs py-2">
+          {currentMatch.partner_username} bilan suhbat boshlandi
+        </div>
+
+        {msgs.map((m) => (
+          <div
+            key={m.id}
+            className={`flex ${
+              m.from === "me" ? "justify-end" : "justify-start"
             }`}
           >
-            {isAudioEnabled ? "🎤 Yoniq" : "🔇 O'chiq"}
-          </button>
-        </div>
-      </div>
-
-      {/* Chat Container - only this area scrolls */}
-      <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div
-          ref={chatContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 transition-[padding] duration-150 overscroll-contain"
-          style={{ paddingBottom: keyboardOffset ? "5rem" : "1rem" }}
-        >
-          <div className="max-w-3xl mx-auto space-y-3">
-            {/* Session start message */}
-            <div className="text-center py-2">
-              <div className="inline-block bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-1.5 text-xs sm:text-sm text-slate-400">
-                {currentMatch.partner_username} bilan boshlandi 🎉
-              </div>
-            </div>
-
-            {chatMessages.length === 0 && (
-              <div className="text-center text-slate-500 py-8">
-                <p className="text-lg">💬</p>
-                <p className="text-sm">Hali xabar yo'q</p>
-                <p className="text-xs">Pastda yozing!</p>
-              </div>
-            )}
-
-            {chatMessages.map((msg) => (
+            <div
+              className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm ${
+                m.from === "me"
+                  ? "bg-primary-600 text-white"
+                  : "bg-slate-700 text-white"
+              }`}
+            >
+              {m.text}
               <div
-                key={msg.id}
-                className={`flex ${
-                  msg.from === "me" ? "justify-end" : "justify-start"
+                className={`text-[10px] mt-1 ${
+                  m.from === "me" ? "text-primary-200" : "text-slate-400"
                 }`}
               >
-                <div
-                  className={`max-w-[85%] sm:max-w-[75%] px-3 sm:px-4 py-2 rounded-2xl ${
-                    msg.from === "me"
-                      ? "bg-primary-600 text-white rounded-br-sm"
-                      : "bg-slate-700 text-white rounded-bl-sm"
-                  }`}
-                >
-                  <p className="break-words text-sm sm:text-base">
-                    {msg.message}
-                  </p>
-                  <p
-                    className={`text-[10px] sm:text-xs mt-1 ${
-                      msg.from === "me" ? "text-primary-200" : "text-slate-400"
-                    }`}
-                  >
-                    {msg.time.toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                </div>
+                {m.time.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
-
-        {!shouldAutoScroll && chatMessages.length > 3 && (
-          <button
-            onClick={scrollToBottom}
-            className="absolute bottom-20 right-4 w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center shadow-lg z-10"
-          >
-            ⬇️
-          </button>
-        )}
+        ))}
       </div>
 
-      {/* Spacer when input is fixed (keyboard open on iOS) */}
-      {keyboardOffset ? (
-        <div className="flex-shrink-0 h-16" aria-hidden />
-      ) : null}
-
-      {/* Chat Input - keyboard offset for iOS */}
-      <div
-        ref={inputWrapRef}
-        className="flex-shrink-0 bg-slate-800 border-t border-slate-700 p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] transition-[bottom] duration-150"
-        style={
-          keyboardOffset
-            ? {
-                position: "fixed",
-                bottom: keyboardOffset,
-                left: 0,
-                right: 0,
-                zIndex: 30,
-              }
-            : undefined
-        }
+      {/* Input */}
+      <form
+        onSubmit={send}
+        className="bg-slate-800 px-3 py-2 border-t border-slate-700"
       >
-        <form onSubmit={handleSendChat} className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onFocus={() => {
-                requestAnimationFrame(() => {
-                  inputWrapRef.current?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "end",
-                  });
-                });
-              }}
-              className="flex-1 bg-slate-700 rounded-full px-4 py-2.5 sm:py-3 text-base text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
-              placeholder="Xabar yozing..."
-              enterKeyHint="send"
-            />
-            <button
-              type="submit"
-              disabled={!chatInput.trim()}
-              className="w-11 h-11 sm:w-12 sm:h-12 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:bg-slate-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg transition-all active:scale-95"
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Xabar yozing..."
+            className="flex-1 bg-slate-700 text-white text-base px-4 py-2 rounded-full outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!input.trim()}
+            className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center disabled:opacity-50"
+          >
+            <svg
+              className="w-5 h-5 text-white"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
             >
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                />
-              </svg>
-            </button>
-          </div>
-        </form>
-      </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+              />
+            </svg>
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
