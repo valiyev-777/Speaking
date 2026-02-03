@@ -250,16 +250,16 @@ export default function VoiceChat() {
         </button>
       </div>
 
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2">
+      {/* Messages - Telegram/WhatsApp style */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col">
+        <div className="flex-1" /> {/* Spacer pushes messages to bottom */}
         <p className="text-center text-slate-500 text-xs py-2">
           Suhbat boshlandi
         </p>
-
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex ${
+            className={`flex mb-2 ${
               msg.from === "me" ? "justify-end" : "justify-start"
             }`}
           >
