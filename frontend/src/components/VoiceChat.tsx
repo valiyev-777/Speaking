@@ -18,10 +18,18 @@ export default function VoiceChat() {
   const user = useStore((state) => state.user);
   const currentMatch = useStore((state) => state.currentMatch);
   const clearMatch = useStore((state) => state.clearMatch);
-  const { connectionState, isAudioEnabled, startCall, endCall, toggleAudio } =
-    useWebRTC();
+  const {
+    connectionState,
+    isAudioEnabled,
+    isRelayFallback,
+    startCall,
+    endCall,
+    toggleAudio,
+  } = useWebRTC();
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [sessionTime, setSessionTime] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -78,6 +86,22 @@ export default function VoiceChat() {
     wsManager.addMessageHandler(handleMessage);
     return () => wsManager.removeMessageHandler(handleMessage);
   }, [endCall, clearMatch]);
+
+  // iOS: move input up when keyboard opens (visualViewport)
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      const offset = window.innerHeight - vv.height;
+      setKeyboardOffset(offset > 60 ? offset : 0);
+    };
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onResize);
+    };
+  }, []);
 
   // Start voice call when matched
   useEffect(() => {
@@ -254,7 +278,7 @@ export default function VoiceChat() {
             <div className="flex items-center gap-1.5 sm:gap-2">
               <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
               <span className="text-yellow-400 text-xs sm:text-sm font-medium">
-                Ulanmoqda...
+                {isRelayFallback ? "TURN orqali ulanmoqda..." : "Ulanmoqda..."}
               </span>
             </div>
           )}
@@ -277,7 +301,8 @@ export default function VoiceChat() {
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-3 sm:px-4 py-4"
+          className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 transition-[padding] duration-150"
+          style={{ paddingBottom: keyboardOffset ? "5rem" : undefined }}
         >
           <div className="max-w-3xl mx-auto space-y-3">
             {/* Session start message */}
@@ -338,16 +363,44 @@ export default function VoiceChat() {
         )}
       </div>
 
-      {/* Chat Input */}
-      <div className="sticky bottom-0 flex-shrink-0 bg-slate-800 border-t border-slate-700 p-2 sm:p-4 pb-[env(safe-area-inset-bottom)]">
+      {/* Spacer when input is fixed (keyboard open on iOS) */}
+      {keyboardOffset ? (
+        <div className="flex-shrink-0 h-16" aria-hidden />
+      ) : null}
+
+      {/* Chat Input - keyboard offset for iOS */}
+      <div
+        ref={inputWrapRef}
+        className="flex-shrink-0 bg-slate-800 border-t border-slate-700 p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] transition-[bottom] duration-150"
+        style={
+          keyboardOffset
+            ? {
+                position: "fixed",
+                bottom: keyboardOffset,
+                left: 0,
+                right: 0,
+                zIndex: 30,
+              }
+            : undefined
+        }
+      >
         <form onSubmit={handleSendChat} className="max-w-3xl mx-auto">
           <div className="flex items-center gap-2 sm:gap-3">
             <input
               type="text"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
+              onFocus={() => {
+                requestAnimationFrame(() => {
+                  inputWrapRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "end",
+                  });
+                });
+              }}
               className="flex-1 bg-slate-700 rounded-full px-4 py-2.5 sm:py-3 text-base text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
               placeholder="Xabar yozing..."
+              enterKeyHint="send"
             />
             <button
               type="submit"

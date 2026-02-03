@@ -51,6 +51,7 @@ export function useWebRTC() {
   const [connectionState, setConnectionState] =
     useState<ConnectionStatus>("idle");
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [isRelayFallback, setIsRelayFallback] = useState(false);
 
   // Create audio element on mount
   useEffect(() => {
@@ -114,6 +115,7 @@ export function useWebRTC() {
 
     iceCandidatesQueue.current = [];
     isNegotiating.current = false;
+    setIsRelayFallback(false);
     setConnectionState("idle");
   }, []);
 
@@ -190,10 +192,15 @@ export function useWebRTC() {
 
     reconnectTimerRef.current = setTimeout(async () => {
       const pc = peerConnectionRef.current;
-      if (!pc || pc.connectionState === "connected") return;
+      if (!pc || pc.connectionState === "connected") {
+        reconnectTimerRef.current = null;
+        return;
+      }
 
       try {
         console.log("[WebRTC] Relay fallback: forcing TURN (relay)");
+        setIsRelayFallback(true);
+        setConnectionState("connecting");
         pc.setConfiguration({
           iceServers: ICE_SERVERS,
           iceTransportPolicy: "relay",
@@ -214,7 +221,7 @@ export function useWebRTC() {
       } catch (error) {
         console.error("[WebRTC] Relay fallback failed:", error);
       }
-    }, 12000);
+    }, 8000);
   }, [currentMatch?.is_initiator, currentMatch?.partner_id]);
 
   // Create peer connection
@@ -263,6 +270,7 @@ export function useWebRTC() {
         pc.iceConnectionState === "completed"
       ) {
         setConnectionState("connected");
+        setIsRelayFallback(false);
         if (reconnectTimerRef.current) {
           clearTimeout(reconnectTimerRef.current);
           reconnectTimerRef.current = null;
@@ -302,6 +310,7 @@ export function useWebRTC() {
 
       if (pc.connectionState === "connected") {
         setConnectionState("connected");
+        setIsRelayFallback(false);
         if (reconnectTimerRef.current) {
           clearTimeout(reconnectTimerRef.current);
           reconnectTimerRef.current = null;
@@ -496,14 +505,14 @@ export function useWebRTC() {
     []
   );
 
-  // Listen for signaling messages
+  // Listen for signaling messages (only offer, answer, ice_candidate)
   useEffect(() => {
     const handleSignaling = (message: WSMessage) => {
-      console.log("[WebRTC] Received signaling:", message.type);
-
       if (message.type === "offer" && message.data) {
+        console.log("[WebRTC] Received offer");
         handleOffer(message.data);
       } else if (message.type === "answer" && message.data) {
+        console.log("[WebRTC] Received answer");
         handleAnswer(message.data);
       } else if (message.type === "ice_candidate" && message.data?.candidate) {
         handleIceCandidate(message.data.candidate);
@@ -565,6 +574,7 @@ export function useWebRTC() {
   return {
     connectionState,
     isAudioEnabled,
+    isRelayFallback,
     startCall,
     endCall,
     toggleAudio,
