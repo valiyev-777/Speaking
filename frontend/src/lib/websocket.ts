@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { WSMessage, MatchData } from '@/types';
+import { WSMessage, MatchData } from "@/types";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 
 type MessageHandler = (message: WSMessage) => void;
 
@@ -21,41 +21,47 @@ class WebSocketManager {
 
   connect(userId: string, token: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      console.log('WebSocket already connected');
+      console.log("WebSocket already connected");
       return;
     }
 
     this.userId = userId;
     this.token = token;
 
-    console.log('WebSocketManager: Connecting...');
+    console.log("WebSocketManager: Connecting...");
     this.ws = new WebSocket(`${WS_URL}/ws/match/${userId}?token=${token}`);
 
     this.ws.onopen = () => {
-      console.log('WebSocketManager: Connected');
+      console.log("WebSocketManager: Connected");
       this._isConnected = true;
-      this.notifyHandlers({ type: 'connection_status', data: { connected: true } } as any);
+      this.notifyHandlers({
+        type: "connection_status",
+        data: { connected: true },
+      } as any);
 
       // Ping every 30 seconds
       this.pingInterval = setInterval(() => {
-        this.send({ type: 'ping' });
+        this.send({ type: "ping" });
       }, 30000);
     };
 
     this.ws.onmessage = (event) => {
       try {
         const message: WSMessage = JSON.parse(event.data);
-        console.log('WebSocketManager: Received:', message);
+        console.log("WebSocketManager: Received:", message);
         this.notifyHandlers(message);
       } catch (e) {
-        console.error('WebSocketManager: Parse error:', e);
+        console.error("WebSocketManager: Parse error:", e);
       }
     };
 
     this.ws.onclose = (event) => {
-      console.log('WebSocketManager: Disconnected', event.code, event.reason);
+      console.log("WebSocketManager: Disconnected", event.code, event.reason);
       this._isConnected = false;
-      this.notifyHandlers({ type: 'connection_status', data: { connected: false } } as any);
+      this.notifyHandlers({
+        type: "connection_status",
+        data: { connected: false },
+      } as any);
 
       if (this.pingInterval) {
         clearInterval(this.pingInterval);
@@ -71,7 +77,7 @@ class WebSocketManager {
     };
 
     this.ws.onerror = (error) => {
-      console.error('WebSocketManager: Error:', error);
+      console.error("WebSocketManager: Error:", error);
     };
   }
 
@@ -95,10 +101,10 @@ class WebSocketManager {
 
   send(message: any): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      console.log('WebSocketManager: Sending:', message);
+      console.log("WebSocketManager: Sending:", message);
       this.ws.send(JSON.stringify(message));
     } else {
-      console.error('WebSocketManager: Cannot send, not connected');
+      console.error("WebSocketManager: Cannot send, not connected");
     }
   }
 
@@ -111,35 +117,39 @@ class WebSocketManager {
   }
 
   private notifyHandlers(message: WSMessage): void {
-    this.messageHandlers.forEach(handler => {
+    this.messageHandlers.forEach((handler) => {
       try {
         handler(message);
       } catch (e) {
-        console.error('WebSocketManager: Handler error:', e);
+        console.error("WebSocketManager: Handler error:", e);
       }
     });
   }
 
   // Convenience methods
-  joinQueue(mode: 'roulette' | 'level_filter', levelFilter?: number): void {
+  joinQueue(mode: "roulette" | "level_filter", levelFilter?: number): void {
     this.send({
-      type: 'join_queue',
+      type: "join_queue",
       data: { mode, level_filter: levelFilter },
     });
   }
 
   leaveQueue(): void {
-    this.send({ type: 'leave_queue' });
+    this.send({ type: "leave_queue" });
   }
 
   endSession(sessionId: string): void {
     this.send({
-      type: 'end_session',
+      type: "end_session",
       data: { session_id: sessionId },
     });
   }
 
-  sendSignaling(type: 'offer' | 'answer' | 'ice_candidate', targetUserId: string, signalData: any): void {
+  sendSignaling(
+    type: "offer" | "answer" | "ice_candidate",
+    targetUserId: string,
+    signalData: any
+  ): void {
     this.send({
       type,
       data: {
@@ -151,10 +161,29 @@ class WebSocketManager {
 
   sendChat(targetUserId: string, message: string): void {
     this.send({
-      type: 'chat',
+      type: "chat",
       data: {
         target_user_id: targetUserId,
         message,
+      },
+    });
+  }
+
+  invitePartner(partnerUserId: string): void {
+    this.send({
+      type: "invite_partner",
+      data: {
+        partner_user_id: partnerUserId,
+      },
+    });
+  }
+
+  respondToInvite(inviterUserId: string, accepted: boolean): void {
+    this.send({
+      type: "invite_response",
+      data: {
+        inviter_user_id: inviterUserId,
+        accepted,
       },
     });
   }

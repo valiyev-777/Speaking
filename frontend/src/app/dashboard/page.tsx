@@ -7,16 +7,24 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { api } from "@/lib/api";
 import { formatLevel } from "@/lib/utils";
 import VoiceChat from "@/components/VoiceChat";
+import { wsManager } from "@/lib/websocket";
+import { WSMessage } from "@/types";
+
+interface IncomingInvite {
+  from_user_id: string;
+  from_username: string;
+  from_level: number;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
-  const user = useStore(state => state.user);
-  const isAuthenticated = useStore(state => state.isAuthenticated);
-  const _hasHydrated = useStore(state => state._hasHydrated);
-  const queueStatus = useStore(state => state.queueStatus);
-  const currentMatch = useStore(state => state.currentMatch);
-  const isInSession = useStore(state => state.isInSession);
-  const logout = useStore(state => state.logout);
+  const user = useStore((state) => state.user);
+  const isAuthenticated = useStore((state) => state.isAuthenticated);
+  const _hasHydrated = useStore((state) => state._hasHydrated);
+  const queueStatus = useStore((state) => state.queueStatus);
+  const currentMatch = useStore((state) => state.currentMatch);
+  const isInSession = useStore((state) => state.isInSession);
+  const logout = useStore((state) => state.logout);
   const { isConnected, joinQueue, leaveQueue } = useWebSocket();
 
   const [selectedMode, setSelectedMode] = useState<"roulette" | "level_filter">(
@@ -25,6 +33,9 @@ export default function DashboardPage() {
   const [levelFilter, setLevelFilter] = useState(6.0);
   const [waitTime, setWaitTime] = useState(0);
   const [onlineCount, setOnlineCount] = useState(0);
+  const [incomingInvite, setIncomingInvite] = useState<IncomingInvite | null>(
+    null
+  );
 
   // Redirect if not authenticated (only after store has loaded from storage)
   useEffect(() => {
@@ -74,6 +85,36 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [queueStatus?.in_queue]);
 
+  // Listen for partner invites
+  useEffect(() => {
+    const handleMessage = (msg: WSMessage) => {
+      if (msg.type === "partner_invite") {
+        setIncomingInvite({
+          from_user_id: msg.from_user_id!,
+          from_username: msg.from_username!,
+          from_level: msg.from_level!,
+        });
+      }
+    };
+
+    wsManager.addMessageHandler(handleMessage);
+    return () => wsManager.removeMessageHandler(handleMessage);
+  }, []);
+
+  const handleAcceptInvite = () => {
+    if (incomingInvite) {
+      wsManager.respondToInvite(incomingInvite.from_user_id, true);
+      setIncomingInvite(null);
+    }
+  };
+
+  const handleRejectInvite = () => {
+    if (incomingInvite) {
+      wsManager.respondToInvite(incomingInvite.from_user_id, false);
+      setIncomingInvite(null);
+    }
+  };
+
   const handleJoinQueue = () => {
     if (selectedMode === "roulette") {
       joinQueue("roulette");
@@ -93,7 +134,14 @@ export default function DashboardPage() {
 
   const levelOptions = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0];
 
-  if (!user) return null;
+  // Loading: wait for hydration and user (avoid blank screen on refresh)
+  if (!_hasHydrated || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin w-10 h-10 border-4 border-violet-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   // Show voice chat if in session
   if (isInSession && currentMatch) {
@@ -127,11 +175,13 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             {/* Partners Button */}
             <button
-              onClick={() => router.push('/partners')}
+              onClick={() => router.push("/partners")}
               className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 px-3 py-1.5 rounded-lg transition-colors"
             >
               <span>👥</span>
-              <span className="text-white text-xs sm:text-sm font-medium">Sheriklar</span>
+              <span className="text-white text-xs sm:text-sm font-medium">
+                Sheriklar
+              </span>
             </button>
 
             {/* Online Users Count */}
@@ -145,8 +195,9 @@ export default function DashboardPage() {
 
             <div className="flex items-center gap-1.5 bg-slate-800 px-2 sm:px-3 py-1.5 rounded-lg">
               <div
-                className={`w-2 h-2 rounded-full ${isConnected ? "bg-emerald-500" : "bg-red-500"
-                  }`}
+                className={`w-2 h-2 rounded-full ${
+                  isConnected ? "bg-emerald-500" : "bg-red-500"
+                }`}
               />
               <span className="text-xs sm:text-sm text-slate-400">
                 {isConnected ? "Ulangan" : "Ulanmoqda..."}
@@ -154,6 +205,41 @@ export default function DashboardPage() {
             </div>
           </div>
         </header>
+
+        {/* Incoming Invite Notification */}
+        {incomingInvite && (
+          <div className="mb-4 bg-gradient-to-r from-violet-600 to-purple-600 rounded-xl p-4 animate-pulse">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-xl font-bold">
+                  {incomingInvite.from_username[0].toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-white font-semibold">
+                    📞 {incomingInvite.from_username} chaqiryapti!
+                  </p>
+                  <p className="text-white/80 text-sm">
+                    {formatLevel(incomingInvite.from_level)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleAcceptInvite}
+                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium"
+                >
+                  ✓ Qabul
+                </button>
+                <button
+                  onClick={handleRejectInvite}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
+                >
+                  ✗ Rad
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Online Users Banner */}
         <div className="bg-gradient-to-r from-emerald-600/20 to-primary-600/20 border border-emerald-500/30 rounded-xl p-3 sm:p-4 mb-6">
@@ -278,10 +364,11 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Roulette Mode */}
             <div
-              className={`card cursor-pointer transition-all ${selectedMode === "roulette"
+              className={`card cursor-pointer transition-all ${
+                selectedMode === "roulette"
                   ? "ring-2 ring-primary-500 bg-primary-600/10"
                   : "hover:bg-slate-700/50"
-                }`}
+              }`}
               onClick={() => setSelectedMode("roulette")}
             >
               <div className="text-4xl mb-4">🎲</div>
@@ -301,10 +388,11 @@ export default function DashboardPage() {
 
             {/* Level Filter Mode */}
             <div
-              className={`card cursor-pointer transition-all ${selectedMode === "level_filter"
+              className={`card cursor-pointer transition-all ${
+                selectedMode === "level_filter"
                   ? "ring-2 ring-primary-500 bg-primary-600/10"
                   : "hover:bg-slate-700/50"
-                }`}
+              }`}
               onClick={() => setSelectedMode("level_filter")}
             >
               <div className="text-4xl mb-4">🎯</div>

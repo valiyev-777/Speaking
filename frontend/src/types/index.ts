@@ -62,12 +62,20 @@ export type WSMessageType =
   | "error"
   | "ping"
   | "pong"
-  | "connection_status";
+  | "connection_status"
+  | "invite_partner"
+  | "invite_sent"
+  | "invite_error"
+  | "partner_invite"
+  | "invite_response"
+  | "invite_rejected";
 
 export interface WSMessage {
   type: WSMessageType;
   data?: any;
   from_user_id?: string;
+  from_username?: string;
+  from_level?: number;
   message?: string;
 }
 
