@@ -81,6 +81,12 @@ async def websocket_match_endpoint(
             elif message_type == "chat":
                 await handle_chat(websocket, user_id, message_data)
             
+            elif message_type == "invite_partner":
+                await handle_invite_partner(websocket, user_id, message_data)
+            
+            elif message_type == "invite_response":
+                await handle_invite_response(websocket, user_id, message_data)
+            
             elif message_type == "ping":
                 await websocket.send_json({"type": "pong"})
     
@@ -229,3 +235,135 @@ async def handle_chat(websocket: WebSocket, user_id: str, data: dict):
             })
         except Exception as e:
             logger.error(f"Chat error: {e}")
+
+
+async def handle_invite_partner(websocket: WebSocket, user_id: str, data: dict):
+    """Handle partner invite request."""
+    partner_user_id = data.get("partner_user_id")
+    
+    if not partner_user_id:
+        await websocket.send_json({"type": "error", "message": "partner_user_id required"})
+        return
+    
+    # Check if partner is online
+    if partner_user_id not in matchmaking_service.connected_clients:
+        await websocket.send_json({
+            "type": "invite_error",
+            "message": "Sherik hozir online emas"
+        })
+        return
+    
+    # Get inviter info
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        inviter = result.scalar_one_or_none()
+        
+        if not inviter:
+            return
+        
+        # Send invite to partner
+        try:
+            await matchmaking_service.connected_clients[partner_user_id].send_json({
+                "type": "partner_invite",
+                "from_user_id": user_id,
+                "from_username": inviter.username,
+                "from_level": inviter.current_level,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            await websocket.send_json({
+                "type": "invite_sent",
+                "message": "Taklif yuborildi!"
+            })
+        except Exception as e:
+            logger.error(f"Invite error: {e}")
+            await websocket.send_json({
+                "type": "invite_error",
+                "message": "Taklif yuborishda xatolik"
+            })
+
+
+async def handle_invite_response(websocket: WebSocket, user_id: str, data: dict):
+    """Handle invite accept/reject."""
+    from app.models.session import Session, SessionStatus
+    import uuid
+    
+    inviter_user_id = data.get("inviter_user_id")
+    accepted = data.get("accepted", False)
+    
+    if not inviter_user_id:
+        return
+    
+    if not accepted:
+        # Notify inviter that invite was rejected
+        if inviter_user_id in matchmaking_service.connected_clients:
+            try:
+                await matchmaking_service.connected_clients[inviter_user_id].send_json({
+                    "type": "invite_rejected",
+                    "message": "Taklif rad etildi"
+                })
+            except:
+                pass
+        return
+    
+    # Invite accepted - create session
+    async with AsyncSessionLocal() as db:
+        # Get both users
+        inviter_result = await db.execute(select(User).where(User.id == inviter_user_id))
+        inviter = inviter_result.scalar_one_or_none()
+        
+        accepter_result = await db.execute(select(User).where(User.id == user_id))
+        accepter = accepter_result.scalar_one_or_none()
+        
+        if not inviter or not accepter:
+            return
+        
+        # Create session
+        room_id = f"room_{uuid.uuid4().hex[:12]}"
+        session = Session(
+            user1_id=inviter_user_id,
+            user2_id=user_id,
+            room_id=room_id,
+            status=SessionStatus.ACTIVE
+        )
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
+        
+        # Notify both users
+        match_data_for_inviter = {
+            "partner_id": str(user_id),
+            "partner_username": accepter.username,
+            "partner_level": accepter.current_level,
+            "room_id": room_id,
+            "session_id": str(session.id),
+            "is_initiator": True
+        }
+        
+        match_data_for_accepter = {
+            "partner_id": str(inviter_user_id),
+            "partner_username": inviter.username,
+            "partner_level": inviter.current_level,
+            "room_id": room_id,
+            "session_id": str(session.id),
+            "is_initiator": False
+        }
+        
+        # Send to inviter
+        if inviter_user_id in matchmaking_service.connected_clients:
+            try:
+                await matchmaking_service.connected_clients[inviter_user_id].send_json({
+                    "type": "matched",
+                    "data": match_data_for_inviter
+                })
+            except Exception as e:
+                logger.error(f"Error notifying inviter: {e}")
+        
+        # Send to accepter
+        try:
+            await websocket.send_json({
+                "type": "matched",
+                "data": match_data_for_accepter
+            })
+        except Exception as e:
+            logger.error(f"Error notifying accepter: {e}")
