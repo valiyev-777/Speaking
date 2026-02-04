@@ -296,6 +296,8 @@ async def handle_invite_response(websocket: WebSocket, user_id: str, data: dict)
     if not inviter_user_id:
         return
     
+    inviter_user_id = str(inviter_user_id).strip()
+    
     if not accepted:
         # Notify inviter that invite was rejected
         if inviter_user_id in matchmaking_service.connected_clients:
@@ -304,68 +306,77 @@ async def handle_invite_response(websocket: WebSocket, user_id: str, data: dict)
                     "type": "invite_rejected",
                     "message": "Taklif rad etildi"
                 })
-            except:
+            except Exception:
                 pass
         return
     
     # Invite accepted - create session
-    async with AsyncSessionLocal() as db:
-        # Get both users
-        inviter_result = await db.execute(select(User).where(User.id == inviter_user_id))
-        inviter = inviter_result.scalar_one_or_none()
-        
-        accepter_result = await db.execute(select(User).where(User.id == user_id))
-        accepter = accepter_result.scalar_one_or_none()
-        
-        if not inviter or not accepter:
-            return
-        
-        # Create session
-        room_id = f"room_{uuid.uuid4().hex[:12]}"
-        session = Session(
-            user1_id=inviter_user_id,
-            user2_id=user_id,
-            room_id=room_id,
-            status=SessionStatus.ACTIVE
-        )
-        db.add(session)
-        await db.commit()
-        await db.refresh(session)
-        
-        # Notify both users
-        match_data_for_inviter = {
-            "partner_id": str(user_id),
-            "partner_username": accepter.username,
-            "partner_level": accepter.current_level,
-            "room_id": room_id,
-            "session_id": str(session.id),
-            "is_initiator": True
-        }
-        
-        match_data_for_accepter = {
-            "partner_id": str(inviter_user_id),
-            "partner_username": inviter.username,
-            "partner_level": inviter.current_level,
-            "room_id": room_id,
-            "session_id": str(session.id),
-            "is_initiator": False
-        }
-        
-        # Send to inviter
-        if inviter_user_id in matchmaking_service.connected_clients:
+    try:
+        async with AsyncSessionLocal() as db:
+            # Get both users
+            inviter_result = await db.execute(select(User).where(User.id == inviter_user_id))
+            inviter = inviter_result.scalar_one_or_none()
+            
+            accepter_result = await db.execute(select(User).where(User.id == user_id))
+            accepter = accepter_result.scalar_one_or_none()
+            
+            if not inviter or not accepter:
+                logger.warning(f"Invite accept: user not found inviter={inviter_user_id} accepter={user_id}")
+                return
+            
+            # Create session (mode required by model - use ROULETTE for partner invite)
+            room_id = f"room_{uuid.uuid4().hex[:12]}"
+            session = Session(
+                user1_id=inviter_user_id,
+                user2_id=user_id,
+                room_id=room_id,
+                status=SessionStatus.ACTIVE,
+                mode=QueueMode.ROULETTE,
+            )
+            db.add(session)
+            await db.commit()
+            await db.refresh(session)
+            
+            # Notify both users (must be inside block to use inviter, accepter, session)
+            match_data_for_inviter = {
+                "partner_id": str(user_id),
+                "partner_username": accepter.username,
+                "partner_level": accepter.current_level,
+                "room_id": room_id,
+                "session_id": str(session.id),
+                "is_initiator": True
+            }
+            
+            match_data_for_accepter = {
+                "partner_id": str(inviter_user_id),
+                "partner_username": inviter.username,
+                "partner_level": inviter.current_level,
+                "room_id": room_id,
+                "session_id": str(session.id),
+                "is_initiator": False
+            }
+            
+            # Send to inviter
+            if inviter_user_id in matchmaking_service.connected_clients:
+                try:
+                    await matchmaking_service.connected_clients[inviter_user_id].send_json({
+                        "type": "matched",
+                        "data": match_data_for_inviter
+                    })
+                except Exception as e:
+                    logger.error(f"Error notifying inviter: {e}")
+            
+            # Send to accepter
             try:
-                await matchmaking_service.connected_clients[inviter_user_id].send_json({
+                await websocket.send_json({
                     "type": "matched",
-                    "data": match_data_for_inviter
+                    "data": match_data_for_accepter
                 })
             except Exception as e:
-                logger.error(f"Error notifying inviter: {e}")
-        
-        # Send to accepter
+                logger.error(f"Error notifying accepter: {e}")
+    except Exception as e:
+        logger.error(f"Invite accept error: {e}", exc_info=True)
         try:
-            await websocket.send_json({
-                "type": "matched",
-                "data": match_data_for_accepter
-            })
-        except Exception as e:
-            logger.error(f"Error notifying accepter: {e}")
+            await websocket.send_json({"type": "invite_error", "message": "Sessiya yaratishda xatolik"})
+        except Exception:
+            pass
