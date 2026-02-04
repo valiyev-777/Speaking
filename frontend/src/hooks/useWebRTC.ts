@@ -27,6 +27,7 @@ export function useWebRTC() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const iceRestartAttemptedRef = useRef(false);
 
   const [status, setStatus] = useState<
     "idle" | "connecting" | "connected" | "failed"
@@ -46,6 +47,7 @@ export function useWebRTC() {
 
   // Cleanup
   const cleanup = useCallback(() => {
+    iceRestartAttemptedRef.current = false;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -99,17 +101,29 @@ export function useWebRTC() {
       } else if (pc.iceConnectionState === "failed") {
         setStatus("failed");
       } else if (pc.iceConnectionState === "disconnected") {
-        // Try ICE restart once after 2s (helps on flaky networks)
-        setTimeout(() => {
-          if (pcRef.current?.iceConnectionState === "disconnected") {
-            console.log("[WebRTC] ICE disconnected, trying restartIce");
-            try {
-              pcRef.current.restartIce();
-            } catch (e) {
-              console.warn("[WebRTC] restartIce failed", e);
+        // Full ICE restart: initiator sends new offer with iceRestart (once)
+        if (currentMatch?.is_initiator && !iceRestartAttemptedRef.current) {
+          iceRestartAttemptedRef.current = true;
+          const partnerId = currentMatch.partner_id;
+          setTimeout(async () => {
+            const p = pcRef.current;
+            const match = useStore.getState().currentMatch;
+            if (p?.iceConnectionState === "disconnected" && match?.partner_id === partnerId) {
+              console.log("[WebRTC] ICE disconnected, sending new offer (iceRestart)");
+              try {
+                const offer = await p.createOffer({ iceRestart: true });
+                await p.setLocalDescription(offer);
+                wsManager.sendSignaling("offer", match.partner_id, {
+                  type: offer.type,
+                  sdp: offer.sdp,
+                });
+              } catch (e) {
+                console.warn("[WebRTC] ICE restart offer failed", e);
+                iceRestartAttemptedRef.current = false;
+              }
             }
-          }
-        }, 2000);
+          }, 1500);
+        }
       }
     };
 
