@@ -30,43 +30,7 @@ export default function VoiceChat() {
 
   // Start call once
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "VoiceChat.tsx:startCallEffect",
-        message: "effect ran",
-        data: { hasMatch: !!match, callStarted },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        hypothesisId: "C",
-      }),
-    }).catch(() => {});
-    // #endregion
-
     if (match && !callStarted) {
-      // #region agent log
-      fetch(
-        "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "VoiceChat.tsx:startCallEffect",
-            message: "calling startCall",
-            data: {
-              partnerId: match.partner_id,
-              isInitiator: match.is_initiator,
-            },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            hypothesisId: "C",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
-
       setCallStarted(true);
       startCall();
     }
@@ -104,21 +68,6 @@ export default function VoiceChat() {
 
   // Send message
   const sendMessage = () => {
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "VoiceChat.tsx:sendMessage",
-        message: "sendMessage called",
-        data: { input, hasMatch: !!match },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
-
     const txt = input.trim();
     if (!txt || !match) return;
 
@@ -134,43 +83,9 @@ export default function VoiceChat() {
       inputRef.current.style.height = "44px";
     }
 
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "VoiceChat.tsx:sendMessage",
-        message: "message sent, focusing input",
-        data: { txt },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        hypothesisId: "B",
-      }),
-    }).catch(() => {});
-    // #endregion
-
-    // Keep keyboard open - use requestAnimationFrame for better timing
+    // Keep keyboard open
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        // #region agent log
-        fetch(
-          "http://127.0.0.1:7242/ingest/d5c08486-b6ca-478c-aa75-7f7450157341",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "VoiceChat.tsx:sendMessage",
-              message: "focus attempted after RAF",
-              data: { inputRefExists: !!inputRef.current },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              hypothesisId: "B",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
-      });
+      requestAnimationFrame(() => inputRef.current?.focus());
     });
   };
 
