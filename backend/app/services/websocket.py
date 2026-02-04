@@ -245,7 +245,9 @@ async def handle_invite_partner(websocket: WebSocket, user_id: str, data: dict):
         await websocket.send_json({"type": "error", "message": "partner_user_id required"})
         return
     
-    # Check if partner is online
+    partner_user_id = str(partner_user_id).strip()
+    
+    # Check if partner is online (keys in connected_clients are strings from path)
     if partner_user_id not in matchmaking_service.connected_clients:
         await websocket.send_json({
             "type": "invite_error",
