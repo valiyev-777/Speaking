@@ -125,6 +125,15 @@ export default function DashboardPage() {
 
           {/* Status row */}
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+            {/* Partners Button */}
+            <button
+              onClick={() => router.push('/partners')}
+              className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <span>👥</span>
+              <span className="text-white text-xs sm:text-sm font-medium">Sheriklar</span>
+            </button>
+
             {/* Online Users Count */}
             <div className="flex items-center gap-1.5 bg-slate-800 px-2 sm:px-3 py-1.5 rounded-lg">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

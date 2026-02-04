@@ -5,7 +5,7 @@ import logging
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, queue
+from app.routers import auth, users, queue, partners
 from app.services.websocket import router as ws_router
 from app.services.matchmaking import matchmaking_service
 
@@ -59,6 +59,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(queue.router, prefix="/queue", tags=["Queue"])
+app.include_router(partners.router, tags=["Partners"])
 app.include_router(ws_router, tags=["WebSocket"])
 
 
