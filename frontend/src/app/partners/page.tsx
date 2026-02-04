@@ -22,6 +22,11 @@ export default function PartnersPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [inviteSending, setInviteSending] = useState<string | null>(null);
+  const [incomingInvite, setIncomingInvite] = useState<{
+    from_user_id: string;
+    from_username: string;
+    from_level: number;
+  } | null>(null);
 
   // Auth check
   useEffect(() => {
@@ -60,6 +65,12 @@ export default function PartnersPage() {
       } else if (msg.type === "invite_rejected") {
         setMessage("Taklif rad etildi");
         setTimeout(() => setMessage(""), 3000);
+      } else if (msg.type === "partner_invite") {
+        setIncomingInvite({
+          from_user_id: msg.from_user_id!,
+          from_username: msg.from_username!,
+          from_level: msg.from_level ?? 0,
+        });
       } else if (msg.type === "matched" && msg.data) {
         // Invited partner accepted: set match in store then go to dashboard (useWebSocket is not mounted on this page)
         useStore.getState().setCurrentMatch(msg.data);
@@ -72,6 +83,20 @@ export default function PartnersPage() {
     wsManager.addMessageHandler(handleMessage);
     return () => wsManager.removeMessageHandler(handleMessage);
   }, [router]);
+
+  const handleAcceptInvite = () => {
+    if (incomingInvite) {
+      wsManager.respondToInvite(incomingInvite.from_user_id, true);
+      setIncomingInvite(null);
+    }
+  };
+
+  const handleRejectInvite = () => {
+    if (incomingInvite) {
+      wsManager.respondToInvite(incomingInvite.from_user_id, false);
+      setIncomingInvite(null);
+    }
+  };
 
   const handleInvite = (partnerUserId: string) => {
     setInviteSending(partnerUserId);
@@ -174,6 +199,41 @@ export default function PartnersPage() {
         <h1 className="text-lg font-semibold">Sheriklar</h1>
         <div className="w-16" />
       </header>
+
+      {/* Incoming invite banner (sherik sizni chaqiryapti) */}
+      {incomingInvite && (
+        <div className="mx-4 mt-4 bg-gradient-to-r from-violet-600 to-purple-600 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-xl font-bold">
+                {incomingInvite.from_username[0].toUpperCase()}
+              </div>
+              <div>
+                <p className="text-white font-semibold">
+                  📞 {incomingInvite.from_username} chaqiryapti!
+                </p>
+                <p className="text-white/80 text-sm">
+                  {formatLevel(incomingInvite.from_level)}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleAcceptInvite}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium"
+              >
+                ✓ Qabul
+              </button>
+              <button
+                onClick={handleRejectInvite}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
+              >
+                ✗ Rad
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Message */}
       {message && (
