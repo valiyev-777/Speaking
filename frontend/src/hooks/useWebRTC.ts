@@ -28,6 +28,7 @@ export function useWebRTC() {
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const iceRestartAttemptedRef = useRef(false);
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   const [status, setStatus] = useState<
     "idle" | "connecting" | "connected" | "failed"
@@ -45,9 +46,25 @@ export function useWebRTC() {
     };
   }, []);
 
+  // Drain queued ICE candidates (trickle ICE: add candidates that arrived before remoteDescription)
+  const drainIceQueue = useCallback(async () => {
+    const pc = pcRef.current;
+    const queue = pendingIceCandidatesRef.current;
+    if (!pc || !pc.remoteDescription || queue.length === 0) return;
+    while (queue.length > 0) {
+      const candidate = queue.shift()!;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn("[WebRTC] addIceCandidate failed", e);
+      }
+    }
+  }, []);
+
   // Cleanup
   const cleanup = useCallback(() => {
     iceRestartAttemptedRef.current = false;
+    pendingIceCandidatesRef.current = [];
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -181,6 +198,7 @@ export function useWebRTC() {
         }
 
         await pc.setRemoteDescription(new RTCSessionDescription(data));
+        await drainIceQueue();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -193,7 +211,7 @@ export function useWebRTC() {
         console.error("[WebRTC] Offer error:", err);
       }
     },
-    [currentMatch, getMic, createPC]
+    [currentMatch, getMic, createPC, drainIceQueue]
   );
 
   // Handle answer
@@ -202,14 +220,22 @@ export function useWebRTC() {
     const pc = pcRef.current;
     if (pc && pc.signalingState === "have-local-offer") {
       await pc.setRemoteDescription(new RTCSessionDescription(data));
+      await drainIceQueue();
     }
-  }, []);
+  }, [drainIceQueue]);
 
-  // Handle ICE
+  // Handle ICE (queue if remoteDescription not set yet - trickle ICE)
   const handleIce = useCallback(async (data: RTCIceCandidateInit) => {
     const pc = pcRef.current;
-    if (pc && pc.remoteDescription) {
-      await pc.addIceCandidate(new RTCIceCandidate(data));
+    if (!pc) return;
+    if (pc.remoteDescription) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(data));
+      } catch (e) {
+        console.warn("[WebRTC] addIceCandidate failed", e);
+      }
+    } else {
+      pendingIceCandidatesRef.current.push(data);
     }
   }, []);
 
