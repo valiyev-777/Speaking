@@ -18,7 +18,7 @@ export default function VoiceChat() {
   const match = useStore((s) => s.currentMatch);
   const clearMatch = useStore((s) => s.clearMatch);
 
-  const { status, micOn, startCall, endCall, toggleMic } = useWebRTC();
+  const { status, micOn, startCall, endCall, toggleMic, retryConnection } = useWebRTC();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -165,6 +165,14 @@ export default function VoiceChat() {
             ? "❌ Xatolik"
             : "⏳ Ulanmoqda..."}
         </span>
+        {(status === "failed" || status === "connecting") && match?.is_initiator && (
+          <button
+            onClick={retryConnection}
+            className="px-3 py-1 rounded-full text-xs text-white bg-violet-600 hover:bg-violet-700"
+          >
+            Qayta urinish
+          </button>
+        )}
         <button
           onClick={toggleMic}
           className={`px-3 py-1 rounded-full text-xs text-white ${
@@ -174,6 +182,17 @@ export default function VoiceChat() {
           {micOn ? "🎤 Yoniq" : "🔇 O'chiq"}
         </button>
       </div>
+
+      {/* Voice failed / connecting hint */}
+      {(status === "failed" || status === "connecting") && (
+        <div className="shrink-0 px-3 pb-2">
+          <p className="text-center text-slate-400 text-xs">
+            {status === "failed"
+              ? "Ovoz ulanishi amalga oshmadi. Bir xil Wi‑Fi da urinib koʻring yoki «Qayta urinish» bosing."
+              : "Ovoz ulanmoqda… Bir xil internet tarmogʻida tekshirish yaxshiroq ishlaydi."}
+          </p>
+        </div>
+      )}
 
       {/* Messages - Telegram/WhatsApp style */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col">

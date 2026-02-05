@@ -284,5 +284,26 @@ export function useWebRTC() {
     setMicOn(true);
   }, [cleanup]);
 
-  return { status, micOn, startCall, endCall, toggleMic };
+  // Manual retry: initiator sends new offer with iceRestart
+  const retryConnection = useCallback(async () => {
+    const pc = pcRef.current;
+    const match = useStore.getState().currentMatch;
+    if (!pc || !match?.is_initiator) return;
+    iceRestartAttemptedRef.current = false;
+    setStatus("connecting");
+    try {
+      console.log("[WebRTC] Manual retry – sending new offer (iceRestart)");
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      wsManager.sendSignaling("offer", match.partner_id, {
+        type: offer.type,
+        sdp: offer.sdp,
+      });
+    } catch (e) {
+      console.warn("[WebRTC] Retry failed", e);
+      setStatus("failed");
+    }
+  }, []);
+
+  return { status, micOn, startCall, endCall, toggleMic, retryConnection };
 }
