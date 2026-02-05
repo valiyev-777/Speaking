@@ -5,21 +5,39 @@ import { useStore } from "@/lib/store";
 import { wsManager } from "@/lib/websocket";
 import { WSMessage } from "@/types";
 
-const ICE_SERVERS: RTCIceServer[] = [
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
 ];
+
+async function getIceServers(): Promise<RTCIceServer[]> {
+  const url = process.env.NEXT_PUBLIC_TURN_CREDENTIALS_URL;
+  if (url) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const servers = Array.isArray(data) ? data : data?.iceServers ?? data?.ice_servers;
+        if (Array.isArray(servers) && servers.length > 0) return servers;
+      }
+    } catch (e) {
+      console.warn("[WebRTC] TURN credentials fetch failed, using defaults", e);
+    }
+  }
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+  if (turnUrl && turnUser && turnCred) {
+    return [
+      ...DEFAULT_ICE_SERVERS.filter((s) => typeof s.urls === "string" && s.urls.startsWith("stun:")),
+      { urls: turnUrl, username: turnUser, credential: turnCred },
+    ];
+  }
+  return DEFAULT_ICE_SERVERS;
+}
 
 export function useWebRTC() {
   const currentMatch = useStore((state) => state.currentMatch);
@@ -94,10 +112,11 @@ export function useWebRTC() {
   }, []);
 
   // Create PC
-  const createPC = useCallback(() => {
+  const createPC = useCallback(async (): Promise<RTCPeerConnection> => {
     if (pcRef.current) return pcRef.current;
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const iceServers = await getIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
 
     pc.onicecandidate = (e) => {
@@ -164,7 +183,7 @@ export function useWebRTC() {
 
     try {
       const stream = await getMic();
-      const pc = createPC();
+      const pc = await createPC();
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
@@ -191,7 +210,7 @@ export function useWebRTC() {
 
       try {
         const stream = await getMic();
-        const pc = createPC();
+        const pc = await createPC();
 
         if (pc.getSenders().length === 0) {
           stream.getTracks().forEach((t) => pc.addTrack(t, stream));
